@@ -1,0 +1,48 @@
+#include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_gui_extra/juce_gui_extra.h>
+#include <array>
+#include "Dsp.h"
+#include <atomic>
+#include <cmath>
+using namespace juce;
+constexpr int N=32;
+struct Channel { std::atomic<float> gain{0.25f}, pan{0}, peak{0}, hp{0}, threshold{-18}, ratio{1}; pulse::StripDSP dsp; std::atomic<bool> mute{true}, solo{false}; };
+class Engine : public AudioIODeviceCallback {
+public:
+ std::array<Channel,N> ch; std::atomic<float> master{0.5f}, peak{0}; std::atomic<bool> enabled{false};
+ AudioDeviceManager devices; AudioFormatManager formats; AudioTransportSource transport; TimeSliceThread disk{"Recording disk"};
+ std::unique_ptr<AudioFormatReaderSource> reader; std::unique_ptr<AudioFormatWriter::ThreadedWriter> writer; CriticalSection recordLock; std::atomic<unsigned> missedWrites{0}; std::atomic<double> rate{48000}; AudioBuffer<float> playback;
+ Engine(){formats.registerBasicFormats(); disk.startThread(); devices.initialise(N,2,nullptr,true); devices.addAudioCallback(this);}
+ ~Engine() override {devices.removeAudioCallback(this); stopRecord(); transport.setSource(nullptr); disk.stopThread(2000);}
+ void audioDeviceAboutToStart(AudioIODevice* d) override {rate=d->getCurrentSampleRate(); for(auto& c:ch)c.dsp.reset(); playback.setSize(2,d->getCurrentBufferSizeSamples()); transport.prepareToPlay(d->getCurrentBufferSizeSamples(),rate);}
+ void audioDeviceStopped() override {transport.releaseResources();}
+ void audioDeviceIOCallbackWithContext(const float* const* in,int ni,float* const* out,int no,int n,const AudioIODeviceCallbackContext&) override {
+  for(int c=0;c<no;++c) if(out[c]) FloatVectorOperations::clear(out[c],n);
+  if(no<2 || !out[0] || !out[1] || n>playback.getNumSamples()) return;
+  bool solo=false; for(auto& c:ch) solo|=c.solo.load();
+  for(int c=0;c<N;++c){auto& s=ch[c]; float p=0; if(c<ni && in[c]) {auto* x=in[c]; for(int i=0;i<n;++i) p=std::max(p,std::abs(x[i])); {float g=(enabled && !s.mute && (!solo || s.solo))?s.gain.load():0.f, a=s.pan; float l=std::sqrt((1-a)*0.5f),r=std::sqrt((1+a)*0.5f); float hp=pulse::coefficient(s.hp.load(),rate), th=pulse::dbGain(s.threshold), ratio=s.ratio, attack=pulse::coefficient(30,rate), release=pulse::coefficient(2,rate), smooth=pulse::coefficient(100,rate); for(int i=0;i<n;++i){float y=s.dsp.process(x[i],g,hp,th,ratio,attack,release,smooth);out[0][i]+=y*l;out[1][i]+=y*r;}}} s.peak=p;}
+  playback.clear(); AudioSourceChannelInfo info(&playback,0,n); transport.getNextAudioBlock(info);
+  float p=0; for(int c=0;c<2;++c){FloatVectorOperations::add(out[c],playback.getReadPointer(c),n); FloatVectorOperations::multiply(out[c],master.load(),n); for(int i=0;i<n;++i){p=std::max(p,std::abs(out[c][i])); out[c][i]=jlimit(-1.f,1.f,out[c][i]);}} peak=p;
+  const ScopedTryLock lock(recordLock); if(lock.isLocked() && writer && !writer->write(out,n)) ++missedWrites;
+ }
+ bool load(File f){auto* r=formats.createReaderFor(f); if(!r)return false; transport.stop(); transport.setSource(nullptr); reader=std::make_unique<AudioFormatReaderSource>(r,true); transport.setSource(reader.get(),32768,&disk,r->sampleRate); return true;}
+ bool record(File f){stopRecord(); auto stream=f.createOutputStream(); if(!stream)return false; WavAudioFormat wav; auto* w=wav.createWriterFor(stream.get(),rate,2,24,{},0); if(!w)return false; stream.release(); auto next=std::make_unique<AudioFormatWriter::ThreadedWriter>(w,disk,65536); const ScopedLock lock(recordLock); writer=std::move(next); return true;}
+ void stopRecord(){std::unique_ptr<AudioFormatWriter::ThreadedWriter> old; {const ScopedLock lock(recordLock); old=std::move(writer);} }
+};
+class Strip : public Component {
+public:
+ Channel& c; Label name; Slider gain,pan,hp,ratio; TextButton mute{"M"},solo{"S"};
+ Strip(Channel& s,int i):c(s){name.setText("IN "+String(i+1),dontSendNotification); name.setJustificationType(Justification::centred); addAndMakeVisible(name); for(auto* b:{&mute,&solo}){addAndMakeVisible(b);b->setClickingTogglesState(true);} mute.setToggleState(true,dontSendNotification); mute.onClick=[this]{c.mute=mute.getToggleState();}; solo.onClick=[this]{c.solo=solo.getToggleState();}; gain.setSliderStyle(Slider::LinearVertical); gain.setRange(0,1.5,0.001);gain.setValue(c.gain);gain.setTextBoxStyle(Slider::TextBoxBelow,false,56,20);gain.onValueChange=[this]{c.gain=(float)gain.getValue();}; pan.setSliderStyle(Slider::RotaryHorizontalVerticalDrag);pan.setRange(-1,1,0.01);pan.setValue(0);pan.setTextBoxStyle(Slider::NoTextBox,false,0,0);pan.onValueChange=[this]{c.pan=(float)pan.getValue();};addAndMakeVisible(gain);addAndMakeVisible(pan); for(auto* k:{&hp,&ratio}){k->setSliderStyle(Slider::RotaryHorizontalVerticalDrag);k->setTextBoxStyle(Slider::TextBoxBelow,false,65,16);addAndMakeVisible(k);} hp.setRange(0,250,1);hp.setTextValueSuffix(" Hz");hp.onValueChange=[this]{c.hp=(float)hp.getValue();};ratio.setRange(1,8,0.1);ratio.setValue(1);ratio.setTextValueSuffix(":1");ratio.onValueChange=[this]{c.ratio=(float)ratio.getValue();};}
+ void paint(Graphics& g) override {g.fillAll(Colour(0xff202832));auto r=Rectangle<int>(getWidth()-13,220,7,std::max(1,getHeight()-255));g.setColour(Colour(0xff10151b));g.fillRect(r);g.setColour(c.peak>0.99f?Colours::orange:Colour(0xff27d6ad));g.fillRect(r.removeFromBottom((int)(r.getHeight()*jlimit(0.f,1.f,std::sqrt(c.peak.load())))));}
+ void resized() override {auto r=getLocalBounds().reduced(4);name.setBounds(r.removeFromTop(24));pan.setBounds(r.removeFromTop(48));auto b=r.removeFromTop(25);mute.setBounds(b.removeFromLeft(b.getWidth()/2));solo.setBounds(b);hp.setBounds(r.removeFromTop(60));ratio.setBounds(r.removeFromTop(60));r.removeFromRight(12);gain.setBounds(r);}
+};
+class Main : public Component, private Timer {
+ Engine e; OwnedArray<Strip> strips; Component bank; Viewport view; Label title,status; TextButton setup{"Audio setup"},open{"Open audio"},play{"Play"},stop{"Stop"},rec{"Record stereo"},end{"Stop recording"},live{"Enable live inputs"}; Slider master; std::unique_ptr<FileChooser> chooser;
+public:
+ Main(){setSize(1200,680);title.setText("PULSE STUDIO  /  ALPHA 0.2",dontSendNotification);title.setFont(Font(24.f));addAndMakeVisible(title);addAndMakeVisible(status);for(auto* b:{&setup,&open,&play,&stop,&rec,&end,&live})addAndMakeVisible(b);live.setClickingTogglesState(true);live.onClick=[this]{e.enabled=live.getToggleState();};setup.onClick=[this]{DialogWindow::LaunchOptions o;o.content.setOwned(new AudioDeviceSelectorComponent(e.devices,0,N,2,2,false,false,true,false));o.content->setSize(560,480);o.dialogTitle="Audio devices";o.dialogBackgroundColour=Colour(0xff202832);o.launchAsync();};open.onClick=[this]{chooser=std::make_unique<FileChooser>("Open audio",File{},"*.wav;*.aiff;*.flac;*.mp3");chooser->launchAsync(FileBrowserComponent::openMode|FileBrowserComponent::canSelectFiles,[this](const FileChooser& f){if(f.getResult().existsAsFile())e.load(f.getResult());});};play.onClick=[this]{e.transport.start();};stop.onClick=[this]{e.transport.stop();e.transport.setPosition(0);};rec.onClick=[this]{chooser=std::make_unique<FileChooser>("Record stereo WAV",File::getSpecialLocation(File::userDocumentsDirectory).getNonexistentChildFile("Pulse recording",".wav"),"*.wav");chooser->launchAsync(FileBrowserComponent::saveMode|FileBrowserComponent::canSelectFiles|FileBrowserComponent::warnAboutOverwriting,[this](const FileChooser& f){auto file=f.getResult();if(file!=File{} && !file.withFileExtension("wav").existsAsFile())e.record(file.withFileExtension("wav"));});};end.onClick=[this]{e.stopRecord();};master.setRange(0,1,0.001);master.setValue(0.5);master.onValueChange=[this]{e.master=(float)master.getValue();};addAndMakeVisible(master);view.setViewedComponent(&bank,false);addAndMakeVisible(view);for(int i=0;i<N;++i){auto* s=strips.add(new Strip(e.ch[i],i));bank.addAndMakeVisible(s);}startTimerHz(15);}
+ void paint(Graphics& g) override {g.fillAll(Colour(0xff131a22));g.setColour(Colour(0xff32d8bd));g.drawText("MASTER",12,100,75,25,Justification::centredLeft);}
+ void resized() override {auto r=getLocalBounds().reduced(12);title.setBounds(r.removeFromTop(42));auto row=r.removeFromTop(38);for(auto* b:{&setup,&open,&play,&stop,&rec,&end,&live}){b->setBounds(row.removeFromLeft(145).reduced(2));}auto m=r.removeFromTop(45);m.removeFromLeft(80);master.setBounds(m.removeFromLeft(280));status.setBounds(m);view.setBounds(r);bank.setSize(N*84,std::max(180,r.getHeight()-18));for(int i=0;i<N;++i)strips[i]->setBounds(i*84,0,80,bank.getHeight());}
+ void timerCallback() override {for(auto* s:strips)s->repaint();status.setText("Device CPU: "+String(e.devices.getCpuUsage()*100,1)+"%  |  Master peak: "+String(Decibels::gainToDecibels(e.peak.load()),1)+" dBFS | Write failures: "+String((int)e.missedWrites.load()),dontSendNotification);}
+};
+class App : public JUCEApplication {std::unique_ptr<DocumentWindow> window; LookAndFeel_V4 look; public: const String getApplicationName() override{return "Pulse Studio";} const String getApplicationVersion() override{return "0.2";} void initialise(const String&) override {look.setColour(Slider::thumbColourId,Colour(0xff32d8bd));LookAndFeel::setDefaultLookAndFeel(&look);struct W:DocumentWindow{W():DocumentWindow("Pulse Studio",Colour(0xff131a22),allButtons){setUsingNativeTitleBar(true);setContentOwned(new Main,true);setResizable(true,true);centreWithSize(1200,680);setVisible(true);}void closeButtonPressed()override{JUCEApplication::getInstance()->systemRequestedQuit();}};window=std::make_unique<W>();}void shutdown()override{window.reset();LookAndFeel::setDefaultLookAndFeel(nullptr);}};
+START_JUCE_APPLICATION(App)
