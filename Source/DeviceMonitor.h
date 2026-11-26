@@ -1,6 +1,7 @@
 #pragma once
 #include "AudioEngine.h"
 namespace pulse {
+inline bool sameDeviceRouting(const juce::String& aType,const juce::AudioDeviceManager::AudioDeviceSetup& a,const juce::String& bType,const juce::AudioDeviceManager::AudioDeviceSetup& b){return aType==bType&&a.inputDeviceName==b.inputDeviceName&&a.outputDeviceName==b.outputDeviceName&&a.inputChannels==b.inputChannels&&a.outputChannels==b.outputChannels;}
 // Message-thread observer. Driver enumeration and opening devices never occur
 // on the audio callback. OS notification callbacks only set an atomic flag.
 class DeviceMonitor final : private juce::AudioIODeviceType::Listener {
@@ -31,10 +32,7 @@ class DeviceMonitor final : private juce::AudioIODeviceType::Listener {
   auto now=e.devices.getAudioDeviceSetup();
   return e.devices.getCurrentAudioDeviceType()==preferredType&&now.inputDeviceName==preferred.inputDeviceName&&now.outputDeviceName==preferred.outputDeviceName;
  }
- bool sameRouting()const{
-  auto now=e.devices.getAudioDeviceSetup();
-  return sameEndpoints()&&now.inputChannels==preferred.inputChannels&&now.outputChannels==preferred.outputChannels;
- }
+ bool sameRouting()const{return sameDeviceRouting(preferredType,preferred,e.devices.getCurrentAudioDeviceType(),e.devices.getAudioDeviceSetup());}
  void remember(){
   preferredType=e.devices.getCurrentAudioDeviceType();preferred=e.devices.getAudioDeviceSetup();
   preferred.useDefaultInputChannels=false;preferred.useDefaultOutputChannels=false;havePreferred=true;
@@ -65,6 +63,7 @@ public:
  ~DeviceMonitor() override {for(auto* t:watched)t->removeListener(this);}
  const juce::StringArray& devices()const{return inventory;}
  juce::String status()const{return notice;}
+ void beginConfiguration(){configured=true;pending=false;review=true;}
  bool requiresReview()const{return review;}
  bool autoEnabled()const{return automatic;}
  void setAutoEnabled(bool enabled){automatic=enabled;dirty=true;}
@@ -92,7 +91,7 @@ public:
   }else if(ready&&!havePreferred){remember();review=false;notice="Audio device active. Verify routing before enabling LIVE.";}
   if(lostEvent){disarm();review=true;if(havePreferred)pending=true;}
   // Never probe vendor drivers while processing a live mix or recording.
-  if(!configOpen&&e.canEditInserts()&&(watched.empty()||dirty.load()||now-lastScan>=10000)){
+  if(!configOpen&&e.canEditInserts()&&(watched.empty()||(dirty.load()&&now-lastScan>=1000)||now-lastScan>=10000)){
    scanNow();
   }
   if(!configOpen&&automatic&&pending&&e.started&&e.canEditInserts()&&(lastAttempt==0||now-lastAttempt>=10000))reconnect();
