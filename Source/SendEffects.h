@@ -2,6 +2,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <array>
 #include <atomic>
+#include "MixerTopology.h"
 namespace pulse {
 class SendEffects {
  juce::AudioBuffer<float> verbInput,delayInput,ring;
@@ -9,7 +10,7 @@ class SendEffects {
  int cursor=0;bool renderActive=false;
  double rate=48000;
 public:
- std::array<std::atomic<float>,32> reverbSend{},delaySend{};
+ std::array<std::atomic<float>,busCount> reverbSend{},delaySend{};
  std::atomic<float> reverbReturn{.25f},delayReturn{.25f},delayMs{280.f},feedback{.25f},room{.45f};
  std::atomic<bool> enabled{false};
  SendEffects(){for(auto& s:reverbSend)s=0;for(auto& s:delaySend)s=0;}
