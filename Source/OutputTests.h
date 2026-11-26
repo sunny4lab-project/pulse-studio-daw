@@ -2,7 +2,7 @@
 #include "AudioEngine.h"
 namespace pulse {
 inline bool testOutputMixes(){
- Engine engine;
+ Engine engine;if(!engine.addChannel())return false;
  constexpr int samples=2048;
  engine.playback.setSize(2,samples);
  for(auto& b:engine.buses)b.setSize(2,samples);
