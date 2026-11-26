@@ -31,7 +31,7 @@ jobs:
           if ($stemTest.ExitCode -ne 0) { throw 'Stem streaming or auxiliary output regression failed' }
           $preview = Start-Process -FilePath $exe.FullName -ArgumentList '--capture-ui' -WorkingDirectory $PWD.Path -Wait -PassThru
           if ($preview.ExitCode -ne 0) { throw 'UI snapshot failed' }
-          foreach ($width in @(864,1360)) { foreach ($workspace in (0..12)) { $suffix = if ($workspace -eq 0) { "" } else { "-$workspace" }; if (!(Test-Path "PulseStudio-UI-$width$suffix.png")) { throw "Missing UI snapshot $width/$workspace" } } }
+          foreach ($width in @(864,1360)) { foreach ($workspace in (0..13)) { $suffix = if ($workspace -eq 0) { "" } else { "-$workspace" }; if (!(Test-Path "PulseStudio-UI-$width$suffix.png")) { throw "Missing UI snapshot $width/$workspace" } } }
           choco install innosetup --yes --no-progress
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
