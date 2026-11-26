@@ -1,9 +1,10 @@
 #pragma once
 #include "../MixerStrip.h"
+#include "../DelayAlignment.h"
 #include "../UI/EnterpriseTheme.h"
 class PluginRackPanel : public Component {
  Engine& e;OwnedArray<Strip>& strips;std::array<String,B>& names;
- ComboBox destination,slotChoice;Label heading,note,detail;TextButton load{"Load effect"},remove{"Remove"},bypass{"Bypass"},editorButton{"Open editor"},savePreset{"Save preset"},loadPreset{"Recall preset"};
+ ComboBox destination,slotChoice;Label heading,note,detail,latency;TextButton load{"Load effect"},remove{"Remove"},bypass{"Bypass"},editorButton{"Open editor"},savePreset{"Save preset"},loadPreset{"Recall preset"};
  std::unique_ptr<FileChooser> chooser;
  struct EditorWindow : DocumentWindow {
   explicit EditorWindow(const String& name):DocumentWindow(name,PulseTheme::panel,DocumentWindow::closeButton){setUsingNativeTitleBar(true);}
@@ -15,10 +16,11 @@ class PluginRackPanel : public Component {
  pulse::InsertSlot& selected(){return e.inserts[rackIndex()].slots[slotIndex()];}
  void message(const String& error){if(error.isNotEmpty())AlertWindow::showMessageBoxAsync(AlertWindow::WarningIcon,"Plugin rack",error);}
 public:
+ void closeEditor(){window.reset();}
  PluginRackPanel(Engine& engine,OwnedArray<Strip>& channels,std::array<String,B>& buses):e(engine),strips(channels),names(buses){
-  for(auto* c:std::array<Component*,11>{&destination,&slotChoice,&heading,&note,&detail,&load,&remove,&bypass,&editorButton,&savePreset,&loadPreset})addAndMakeVisible(c);
+  for(auto* c:std::array<Component*,12>{&destination,&slotChoice,&heading,&note,&detail,&load,&remove,&bypass,&editorButton,&savePreset,&loadPreset,&latency})addAndMakeVisible(c);
   heading.setText("CHANNEL & BUS INSERT RACKS",dontSendNotification);PulseTheme::style(heading,16,true);
-  note.setText("Two serial stereo inserts per channel or bus. Load/remove with live, playback and recording stopped. Zero-reported-latency effects only. Save/recall .pulsefx state for the same installed effect. Rack assignment remains session-only.",dontSendNotification);note.setJustificationType(Justification::topLeft);PulseTheme::style(note,12,false,PulseTheme::muted);detail.setJustificationType(Justification::topLeft);
+  note.setText("Two serial stereo inserts per channel or bus. Load/remove with live, playback and recording stopped. Zero-reported-latency effects only. Save/recall .pulsefx state for the same installed effect. Rack assignment and effect state are saved in v2 projects.",dontSendNotification);note.setJustificationType(Justification::topLeft);PulseTheme::style(note,12,false,PulseTheme::muted);detail.setJustificationType(Justification::topLeft);latency.setJustificationType(Justification::topLeft);PulseTheme::style(latency,12,false,PulseTheme::muted);
   for(int i=0;i<N;++i)destination.addItem("Channel "+String(i+1),i+1);
   for(int b=0;b<B;++b)destination.addItem("Bus "+String(b+1),N+b+1);
   destination.setSelectedId(1,dontSendNotification);for(int i=0;i<pulse::insertsPerRack;++i)slotChoice.addItem("Insert "+String(i+1),i+1);slotChoice.setSelectedId(1,dontSendNotification);
@@ -49,7 +51,7 @@ public:
   });
  }
  void refresh(){for(int i=0;i<N;++i){String n="CH "+String(i+1)+" | "+(i<strips.size()?strips[i]->name.getText():String());if(destination.getItemText(i)!=n)destination.changeItemText(i+1,n);}for(int b=0;b<B;++b){String n="BUS "+String(b+1)+" | "+names[b];if(destination.getItemText(N+b)!=n)destination.changeItemText(N+b+1,n);}auto& s=selected();bool loaded=s.plugin!=nullptr;bool idle=!e.enabled.load()&&!e.transport.isPlaying();load.setEnabled(idle);remove.setEnabled(loaded&&idle);bypass.setEnabled(loaded);editorButton.setEnabled(loaded&&s.plugin->hasEditor());savePreset.setEnabled(loaded&&idle);loadPreset.setEnabled(loaded&&idle);bypass.setToggleState(s.bypass.load(),dontSendNotification);
-  String text;for(int i=0;i<pulse::insertsPerRack;++i){auto& item=e.inserts[rackIndex()].slots[i];text+="Insert "+String(i+1)+": "+(item.plugin?item.plugin->getName():"Empty");if(item.plugin){if(item.plugin->getLatencySamples()!=0)text+=" [latency guard: skipped]";else if(item.bypass.load())text+=" [bypassed]";else text+=" [enabled]";}text+="\n";}detail.setText(text,dontSendNotification);}
+  String text;for(int i=0;i<pulse::insertsPerRack;++i){auto& item=e.inserts[rackIndex()].slots[i];text+="Insert "+String(i+1)+": "+(item.plugin?item.plugin->getName():"Empty");if(item.plugin){if(item.plugin->getLatencySamples()!=0)text+=" [latency guard: skipped]";else if(item.bypass.load())text+=" [bypassed]";else text+=" [enabled]";}text+="\n";}detail.setText(text,dontSendNotification);std::array<int,N> chLatency{},routes{};std::array<int,B> busLatency{};auto sum=[&](int rack){int total=0;for(auto& item:e.inserts[rack].slots)if(item.plugin&&!item.bypass.load())total+=std::max(0,item.plugin->getLatencySamples());return total;};for(int i=0;i<N;++i){chLatency[i]=sum(i);routes[i]=jlimit(0,B-1,e.ch[i].bus.load());}for(int b=0;b<B;++b)busLatency[b]=sum(N+b);auto plan=pulse::DelayPlan<N,B>::calculate(chLatency,routes,busLatency,0,8192);int m=e.masterPlugin&&!e.pluginBypass.load()?std::max(0,e.masterPlugin->getLatencySamples()):0;latency.setText((plan.valid?"Proposed insert alignment: "+String(plan.total)+" samples":"Insert alignment exceeds 8192 samples")+String("\nMaster effect: ")+String(m)+" samples | compensation not active. Nonzero-latency channel/bus inserts are skipped.",dontSendNotification);}
  void paint(Graphics& g) override {g.setColour(PulseTheme::panel);g.fillRoundedRectangle(getLocalBounds().toFloat(),6);}
- void resized() override {auto r=getLocalBounds().reduced(12);heading.setBounds(r.removeFromTop(30));auto row=r.removeFromTop(30);destination.setBounds(row.removeFromLeft(row.getWidth()*2/3).reduced(2));slotChoice.setBounds(row.reduced(2));row=r.removeFromTop(32);int remaining=4;for(auto* b:{&load,&remove,&bypass,&editorButton})b->setBounds(row.removeFromLeft(row.getWidth()/remaining--).reduced(2));row=r.removeFromTop(30);savePreset.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));loadPreset.setBounds(row.reduced(2));detail.setBounds(r.removeFromTop(70));note.setBounds(r.removeFromTop(90));}
+ void resized() override {auto r=getLocalBounds().reduced(12);heading.setBounds(r.removeFromTop(30));auto row=r.removeFromTop(30);destination.setBounds(row.removeFromLeft(row.getWidth()*2/3).reduced(2));slotChoice.setBounds(row.reduced(2));row=r.removeFromTop(32);int remaining=4;for(auto* b:{&load,&remove,&bypass,&editorButton})b->setBounds(row.removeFromLeft(row.getWidth()/remaining--).reduced(2));row=r.removeFromTop(30);savePreset.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));loadPreset.setBounds(row.reduced(2));detail.setBounds(r.removeFromTop(70));latency.setBounds(r.removeFromTop(56));note.setBounds(r.removeFromTop(90));}
 };
