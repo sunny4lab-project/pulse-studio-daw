@@ -1,4 +1,4 @@
-# Pulse Studio Enterprise 0.17.0
+# Pulse Studio Enterprise 0.18.0
 Experimental native C++17 / JUCE 8.0.11 application. Not production-ready.
 
 ## Mixer
@@ -6,15 +6,17 @@ New sessions begin with zero audio input channels and exactly ten renameable ste
 
 There is no fixed software mixer channel limit. CPU, memory, interface capacity, plugin licenses and device settings constrain practical session size. Four-stem arrangement playback and 32-input raw multichannel WAV recording are separate existing subsystems with their own limits.
 
-## Windows Dante / ASIO
-1. Close any application using the same ASIO driver if it prevents access. Start the separately installed/licensed Dante Virtual Soundcard in ASIO mode (e.g. 64 x 64 at 48 kHz, subject to the device and network).
-2. Open Dante Center and click Scan ASIO drivers to list registered drivers. Click Open audio devices, choose ASIO, then select Dante Virtual Soundcard. Configure the desired sample rate, buffer and active input/output channels in the device dialog.
-3. Enable up to the available device inputs. The mixer input selectors show the actual driver-reported names of the active channels. Routing uses active-channel order; recheck assignments after changing the enabled channel set.
-4. Select the stereo master output pair first; up to four active stereo pairs are routed (master + three auxiliary mixes). The engine does not expose 64 independent output mixes. Existing multichannel WAV capture is still limited to 32 inputs.
-5. Use Save device setup in Dante Center to save the current driver, sample rate, buffer and channel masks locally. The setup is recalled when opening Device on the next launch, with live monitoring off. If a saved device is unavailable, JUCE may fall back to a default device; verify the active driver before enabling live.
-6. Dante network subscriptions and clocking remain in Dante Controller. The application is an ASIO host, not a Dante network controller.
+## Universal Audio Device Manager
+1. Connect a compatible USB, Thunderbolt, built-in or network audio interface and install its required operating system driver. Close any other application that exclusively occupies the driver.
+2. Open Audio Device Manager and click **Scan all devices** to list registered backends and input/output endpoints. Scanning does not select or open an endpoint for audio streaming. Scan only with live monitoring, playback and recording stopped.
+3. Click **Configure device** and select the backend and device. On Windows, ASIO is preferred for professional multichannel audio. Other backends are available as provided by JUCE and the platform. On macOS choose CoreAudio; on Linux choose an available backend.
+4. Select sample rate, buffer size and active input/output channels. The mixer displays driver-reported names in active-channel order. Recheck assignments if the active channel mask or device changes.
+5. The engine supports up to four active stereo output pairs (master and three auxiliary mixes). Raw multichannel WAV capture retains its separate 32-input limit.
+6. Click **Save setup** to remember the driver, sample rate, buffer and channel masks. Settings are recalled when Device is opened on the next launch. Verify the selected hardware before enabling live monitoring, especially if the saved device is unavailable.
 
-The Windows CI smoke test verifies ASIO backend registration without requiring physical audio hardware. This does not prove that DVS, WING or any particular driver works on a specific PC. The bundled ASIO SDK and JUCE have licensing requirements; review the applicable terms before distributing the binary.
+Focusrite, Behringer WING, Allen & Heath, Dante Virtual Soundcard and other hardware use the same driver-based workflow. Support is contingent on a compatible installed driver and actual hardware testing. Network audio subscriptions and console remote-control functions remain external. Automatic hot-plug reconnection, manufacturer-specific discovery and simultaneous independent interfaces are not implemented. Live inputs remain disabled after the device stops.
+
+The Windows CI smoke test checks ASIO backend registration without physical hardware. Review JUCE and applicable ASIO licensing before distributing the binary.
 
 ## Projects
 Version 3 .pulse projects store the variable channel count, routing, ten bus settings, effects, stem paths and plugin state. Older 32-channel projects can be migrated; routes to buses 11–32 are assigned to bus 10, and removed bus settings are not recalled. Projects containing plugins on removed buses are rejected until those plugins are moved or removed in an older version. Save a copy of the original project before migration. Original media and compatible plugins must remain available.
