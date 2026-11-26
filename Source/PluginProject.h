@@ -35,7 +35,7 @@ public:
     item->setAttribute("state",state.toBase64Encoding());
     auto desc=p->getPluginDescription().createXml();item->addChildElement(desc.release());return true;
    };
-   for(int r=0;r<e.rackCount();++r)for(int s=0;s<insertsPerRack;++s){auto& x=e.rackAt(r).slots[s];if(!saveOne(r,s,x.plugin.get(),x.bypass.load()))return "Plugin state exceeds project size limit.";}
+   for(int r=0;r<e.rackCount();++r){plugins.setAttribute("slots"+juce::String(r),e.rackAt(r).visibleSlots);for(int s=0;s<insertsPerRack;++s){auto& x=e.rackAt(r).slots[s];if(!saveOne(r,s,x.plugin.get(),x.bypass.load()))return "Plugin state exceeds project size limit.";}}
    if(!saveOne(e.rackCount(),0,e.masterPlugin.get(),e.pluginBypass.load()))return "Master plugin state exceeds project size limit.";
   }
   root.addChildElement(new juce::XmlElement(plugins));return {};
@@ -48,7 +48,8 @@ public:
   if(list&&(size_t)list->getNumChildElements()>slotCount)return "Too many plugin slots for this mixer.";
   auto* d=e.devices.getCurrentAudioDevice();
   if(list&&list->getNumChildElements()>0&&(!d||!d->isPlaying()))return "Open Audio Device setup before restoring a project with plugins.";
-  std::vector<Pending> pending(slotCount);std::vector<bool> seen(slotCount,false);size_t total=0;
+  std::vector<Pending> pending(slotCount);std::vector<bool> seen(slotCount,false);std::vector<int> rackLatency((size_t)masterRack,0),visible((size_t)masterRack,initialInsertSlots);size_t total=0;
+  if(list&&root.getIntAttribute("version")>=4)for(int r=0;r<masterRack;++r)visible[r]=juce::jlimit(initialInsertSlots,insertsPerRack,list->getIntAttribute("slots"+juce::String(r),initialInsertSlots));
   if(list)for(auto* x:list->getChildIterator()){
    int rack=x->getIntAttribute("rack",-1),slot=x->getIntAttribute("slot",-1);
    if(rack==oldMaster)rack=masterRack;else if(rack>=masterRack)return "Project has effects on buses 11–32. Move or remove those effects in the older version first.";
@@ -62,7 +63,7 @@ public:
    if(p->getTotalNumInputChannels()!=2||p->getTotalNumOutputChannels()!=2)return desc.name+" is not a stereo effect.";
    p->prepareToPlay(d->getCurrentSampleRate(),d->getCurrentBufferSizeSamples());p->setStateInformation(state.getData(),(int)state.getSize());
    int latency=p->getLatencySamples();p->releaseResources();
-   if(rack!=masterRack&&latency!=0)return desc.name+" reports latency; channel/bus compensation is not enabled.";
+   if(rack!=masterRack){if(latency<0||latency>maxRackLatency-rackLatency[rack])return desc.name+" exceeds the per-rack latency budget.";rackLatency[rack]+=latency;visible[rack]=std::max(visible[rack],slot+1); }
    pending[i].plugin=std::move(p);pending[i].bypass=x->getBoolAttribute("bypass",false);
   }
   pulse::StableList<Channel> newChannels;pulse::StableList<InsertRack> newRacks;newChannels.reserve(targetCount);newRacks.reserve(targetCount);for(int i=0;i<targetCount;++i){newChannels.append().source=-1;newRacks.append();}
@@ -70,7 +71,7 @@ public:
   {
    Detached detached(e);
    if(beforeSwap)beforeSwap();e.ch.swap(newChannels);e.channelInserts.swap(newRacks);
-   for(int r=0;r<e.rackCount();++r)for(int s=0;s<insertsPerRack;++s){auto& src=pending[index(r,s)];auto& dst=e.rackAt(r).slots[s];dst.plugin=std::move(src.plugin);dst.bypass=src.bypass;}
+   for(int r=0;r<e.rackCount();++r){e.rackAt(r).visibleSlots=visible[r];for(int s=0;s<insertsPerRack;++s){auto& src=pending[index(r,s)];auto& dst=e.rackAt(r).slots[s];dst.plugin=std::move(src.plugin);dst.bypass=src.bypass;}}
    auto& src=pending[index(masterRack,0)];e.masterPlugin=std::move(src.plugin);e.pluginBypass=src.bypass;
   }
   return {};
