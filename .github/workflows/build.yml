@@ -27,6 +27,9 @@ jobs:
           $p.Refresh()
           if ($p.HasExited) { throw "Startup failed: $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
+          $preview = Start-Process -FilePath $exe.FullName -ArgumentList '--capture-ui' -WorkingDirectory $PWD.Path -Wait -PassThru
+          if ($preview.ExitCode -ne 0) { throw 'UI snapshot failed' }
+          foreach ($width in @(864,1360)) { if (!(Test-Path "PulseStudio-UI-$width.png")) { throw "Missing UI snapshot $width" } }
           choco install innosetup --yes --no-progress
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -38,6 +41,12 @@ jobs:
         with:
           name: PulseStudio-Windows-Installer
           path: installer-output/PulseStudio-Setup.exe
+          if-no-files-found: error
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulseStudio-UI-Snapshots
+          path: PulseStudio-UI-*.png
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
