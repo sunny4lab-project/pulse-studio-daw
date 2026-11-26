@@ -63,7 +63,30 @@ public:
  void startAudio(){if(started)return;started=true;auto file=deviceSettingsFile();auto saved=file.existsAsFile()&&file.getSize()<1024*1024?XmlDocument::parse(file):nullptr;
   // Restore the last explicitly saved driver, sample rate, buffer and channel masks.
   // Never arm live monitoring or auxiliary outputs automatically.
-  enabled=false;disarmAux();deviceError=devices.initialise(0,2,saved.get(),saved==nullptr);devices.addAudioCallback(this);
+  enabled=false;disarmAux();if(saved)deviceError=devices.initialise(2,2,saved.get(),false);devices.addAudioCallback(this);
+ }
+ // Open exactly the selected endpoints without first opening a default device.
+ String openSelectedDevice(const String& type,const String& input,const String& output,double sampleRate,int bufferSize,int inputCount,int outputCount){
+  if(!canEditInserts())return "Stop live monitoring, playback and recording first.";
+  if(output.isEmpty()||outputCount<2||outputCount>pulse::maxOutputChannels||inputCount<0||inputCount>4096||sampleRate<0||bufferSize<0)return "Select an output device and valid channel counts.";
+  bool found=false;
+  for(auto* t:devices.getAvailableDeviceTypes())if(t->getTypeName()==type){
+   if(!t->getDeviceNames(false).contains(output)||(input.isNotEmpty()&&!t->getDeviceNames(true).contains(input)))return "The selected device is no longer listed. Refresh devices.";
+   found=true;break;
+  }
+  if(!found)return "Selected audio backend is unavailable.";
+  XmlElement xml("DEVICESETUP");xml.setAttribute("deviceType",type);xml.setAttribute("audioInputDeviceName",input);xml.setAttribute("audioOutputDeviceName",output);
+  if(sampleRate>0)xml.setAttribute("audioDeviceRate",sampleRate);
+  if(bufferSize>0)xml.setAttribute("audioDeviceBufferSize",bufferSize);
+  BigInteger ins,outs;if(input.isNotEmpty()&&inputCount>0)ins.setRange(0,inputCount,true);outs.setRange(0,outputCount,true);
+  xml.setAttribute("audioDeviceInChans",ins.toString(2));xml.setAttribute("audioDeviceOutChans",outs.toString(2));
+  enabled=false;disarmAux();devices.closeAudioDevice();deviceFault=false;deviceFaultNotice=false;
+  auto error=devices.initialise(2,2,&xml,false);
+  auto* d=devices.getCurrentAudioDevice();
+  if(error.isEmpty()&&(!d||!d->isOpen()||!d->isPlaying()))error="The driver did not enter a running state.";
+  if(error.isEmpty()&&d->getActiveOutputChannels().countNumberOfSetBits()<2)error="The device did not enable a stereo output pair.";
+  if(error.isNotEmpty()){devices.closeAudioDevice();deviceError=type+" | "+output+" | "+String(sampleRate,0)+" Hz | "+String(bufferSize)+" samples | requested "+String(inputCount)+" in / "+String(outputCount)+" out: "+error;return deviceError;}
+  deviceError.clear();return {};
  }
  StringArray activeChannelNames(bool input){
   StringArray result;auto* d=devices.getCurrentAudioDevice();if(!d)return result;
