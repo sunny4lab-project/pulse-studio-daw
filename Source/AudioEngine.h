@@ -40,10 +40,41 @@ public:
  bool removeChannel(int i){if(i<0||i>=channelCount()||!canEditInserts())return false;if(started)devices.removeAudioCallback(this);channelInserts.erase(i);ch.erase(i);if(started)devices.addAudioCallback(this);return true;}
  std::unique_ptr<AudioPluginInstance> masterPlugin; AudioBuffer<float> pluginBuffer; MidiBuffer pluginMidi; std::atomic<bool> pluginBypass{false}; String deviceError; bool started=false;
  Engine(){for(auto& v:auxSend)v=0.f;for(auto& v:auxGain)v=0.25f;for(auto& v:auxPeak)v=0.f;for(auto& a:auxArmed)a=false;for(auto& a:auxAvailable)a=false;for(auto& t:stemTrims)t=1.f;for(auto& m:stemMutes)m=false;pluginFormats.addDefaultFormats();for(auto& g:busGain)g.store(1.f);for(auto& p:busPeak)p.store(0.f);formats.registerBasicFormats(); disk.startThread();stemDisk.startThread();}
- void startAudio(){if(started)return; started=true; deviceError=devices.initialise(0,2,nullptr,true); devices.addAudioCallback(this); }
+ static File deviceSettingsFile(){return File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("PulseStudio").getChildFile("audio-device.xml");}
+ String saveDeviceSettings(){
+  if(!canEditInserts())return "Stop live audio, playback and recording before saving device settings.";
+  auto* d=devices.getCurrentAudioDevice();if(!d||!d->isPlaying())return "No active audio device.";
+  auto xml=devices.createStateXml();
+  if(!xml)return "Select the driver and channel configuration in Device first.";
+  auto file=deviceSettingsFile();
+  if(!file.getParentDirectory().createDirectory().wasOk()||!xml->writeTo(file))return "Could not write audio-device settings.";
+  return {};
+ }
+ void startAudio(){if(started)return;started=true;auto file=deviceSettingsFile();auto saved=file.existsAsFile()&&file.getSize()<1024*1024?XmlDocument::parse(file):nullptr;
+  // Restore the last explicitly saved driver, sample rate, buffer and channel masks.
+  // Never arm live monitoring or auxiliary outputs automatically.
+  enabled=false;disarmAux();deviceError=devices.initialise(0,2,saved.get(),true);devices.addAudioCallback(this);
+ }
+ StringArray activeChannelNames(bool input){
+  StringArray result;auto* d=devices.getCurrentAudioDevice();if(!d)return result;
+  auto names=input?d->getInputChannelNames():d->getOutputChannelNames();
+  auto mask=input?d->getActiveInputChannels():d->getActiveOutputChannels();
+  for(int i=mask.findNextSetBit(0);i>=0;i=mask.findNextSetBit(i+1))
+   result.add(String(i+1)+" | "+(i<names.size()?names[i]:String(input?"Input":"Output")));
+  return result;
+ }
+ StringArray discoverAsioDrivers(){
+  StringArray result;
+  if(!canEditInserts())return result;
+  for(auto* type:devices.getAvailableDeviceTypes())if(type->getTypeName().equalsIgnoreCase("ASIO")){
+   type->scanForDevices();result.addArray(type->getDeviceNames(false));
+  }
+  return result;
+ }
+
  ~Engine() override {devices.removeAudioCallback(this); multitrack.stop();stopRecord(); transport.setSource(nullptr); stemDisk.stopThread(2000);disk.stopThread(2000);}
  void audioDeviceAboutToStart(AudioIODevice* d) override {disarmAux();for(auto& a:auxAvailable)a=false;rate=d->getCurrentSampleRate();multitrack.invalidate();sends.prepare(rate.load(),d->getCurrentBufferSizeSamples());limiter.reset();loudness.reset(rate.load());for(auto& c:ch){c.dsp.reset();c.rightDsp.reset();c.toneLeft.reset();c.toneRight.reset();} playback.setSize(2,d->getCurrentBufferSizeSamples());pluginBuffer.setSize(2,d->getCurrentBufferSizeSamples());if(masterPlugin)masterPlugin->prepareToPlay(rate,d->getCurrentBufferSizeSamples());for(auto& rack:channelInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());for(auto& rack:busInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());pluginMidi.ensureSize(2048); for(auto& b:buses)b.setSize(2,d->getCurrentBufferSizeSamples());transport.prepareToPlay(d->getCurrentBufferSizeSamples(),rate);}
- void audioDeviceStopped() override {multitrack.invalidate();limiterReduction=0;momentaryLufs=-100;shortLufs=-100;integratedLufs=-100;estimatedTruePeak=0;disarmAux();for(auto& a:auxAvailable)a=false;for(auto& p:auxPeak)p=0;peak=0;rms=0;transport.releaseResources();if(masterPlugin)masterPlugin->releaseResources();for(auto& rack:channelInserts)rack.release();for(auto& rack:busInserts)rack.release();}
+ void audioDeviceStopped() override {enabled=false;multitrack.invalidate();limiterReduction=0;momentaryLufs=-100;shortLufs=-100;integratedLufs=-100;estimatedTruePeak=0;disarmAux();for(auto& a:auxAvailable)a=false;for(auto& p:auxPeak)p=0;peak=0;rms=0;transport.releaseResources();if(masterPlugin)masterPlugin->releaseResources();for(auto& rack:channelInserts)rack.release();for(auto& rack:busInserts)rack.release();}
  void audioDeviceIOCallbackWithContext(const float* const* in,int ni,float* const* out,int no,int n,const AudioIODeviceCallbackContext&) override {
   ScopedNoDenormals noDenormals;
   if(n<=0)return;multitrack.push(in,ni,n);if(!out)return;
