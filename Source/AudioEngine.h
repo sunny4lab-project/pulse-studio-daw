@@ -36,9 +36,19 @@ public:
  pulse::InsertRack& rackAt(int i){return i<channelCount()?channelInserts[i]:busInserts[i-channelCount()];}
  const pulse::InsertRack& rackAt(int i)const{return i<channelCount()?channelInserts[i]:busInserts[i-channelCount()];}
  // Call only while idle, with UI references to removed channels released.
- bool addChannel(){if(!canEditInserts())return false;struct Pause{Engine& e;explicit Pause(Engine& x):e(x){if(e.started)e.devices.removeAudioCallback(&e);}~Pause(){if(e.started)e.devices.addAudioCallback(&e);}} pause(*this);try{auto& c=ch.append();try{channelInserts.append();}catch(...){ch.erase(ch.size()-1);throw;}c.source=-1;return true;}catch(const std::bad_alloc&){return false;}}
+ bool addChannels(const std::vector<int>& sources){
+  if(sources.empty()||!canEditInserts())return false;
+  struct Pause{Engine& e;explicit Pause(Engine& x):e(x){if(e.started)e.devices.removeAudioCallback(&e);}~Pause(){if(e.started)e.devices.addAudioCallback(&e);}} pause(*this);
+  const int old=channelCount();
+  try{
+   for(int source:sources){auto& c=ch.append();try{channelInserts.append();}catch(...){ch.erase(ch.size()-1);throw;}c.source=source;}
+   return true;
+  }catch(const std::bad_alloc&){while(ch.size()>old){channelInserts.erase(ch.size()-1);ch.erase(ch.size()-1);}return false;}
+ }
+ bool addChannel(){return addChannels(std::vector<int>{-1});}
  bool removeChannel(int i){if(i<0||i>=channelCount()||!canEditInserts())return false;if(started)devices.removeAudioCallback(this);channelInserts.erase(i);ch.erase(i);if(started)devices.addAudioCallback(this);return true;}
  std::unique_ptr<AudioPluginInstance> masterPlugin; AudioBuffer<float> pluginBuffer; MidiBuffer pluginMidi; std::atomic<bool> pluginBypass{false}; String deviceError; bool started=false;
+ std::atomic<bool> deviceFault{false},deviceFaultNotice{false};std::atomic<unsigned> deviceStopSerial{0};
  Engine(){for(auto& v:auxSend)v=0.f;for(auto& v:auxGain)v=0.25f;for(auto& v:auxPeak)v=0.f;for(auto& a:auxArmed)a=false;for(auto& a:auxAvailable)a=false;for(auto& t:stemTrims)t=1.f;for(auto& m:stemMutes)m=false;juce::addDefaultFormatsToManager(pluginFormats);for(auto& g:busGain)g.store(1.f);for(auto& p:busPeak)p.store(0.f);formats.registerBasicFormats(); disk.startThread();stemDisk.startThread();}
  static File deviceSettingsFile(){return File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("PulseStudio").getChildFile("audio-device.xml");}
  String saveDeviceSettings(){
@@ -53,7 +63,7 @@ public:
  void startAudio(){if(started)return;started=true;auto file=deviceSettingsFile();auto saved=file.existsAsFile()&&file.getSize()<1024*1024?XmlDocument::parse(file):nullptr;
   // Restore the last explicitly saved driver, sample rate, buffer and channel masks.
   // Never arm live monitoring or auxiliary outputs automatically.
-  enabled=false;disarmAux();deviceError=devices.initialise(0,2,saved.get(),true);devices.addAudioCallback(this);
+  enabled=false;disarmAux();deviceError=devices.initialise(0,2,saved.get(),saved==nullptr);devices.addAudioCallback(this);
  }
  StringArray activeChannelNames(bool input){
   StringArray result;auto* d=devices.getCurrentAudioDevice();if(!d)return result;
@@ -87,11 +97,12 @@ public:
   StringArray names;for(auto* type:devices.getAvailableDeviceTypes())names.add(type->getTypeName());return names;
  }
  ~Engine() override {devices.removeAudioCallback(this); multitrack.stop();stopRecord(); transport.setSource(nullptr); stemDisk.stopThread(2000);disk.stopThread(2000);}
- void audioDeviceAboutToStart(AudioIODevice* d) override {disarmAux();for(auto& a:auxAvailable)a=false;rate=d->getCurrentSampleRate();multitrack.invalidate();sends.prepare(rate.load(),d->getCurrentBufferSizeSamples());limiter.reset();loudness.reset(rate.load());for(auto& c:ch){c.dsp.reset();c.rightDsp.reset();c.toneLeft.reset();c.toneRight.reset();} playback.setSize(2,d->getCurrentBufferSizeSamples());pluginBuffer.setSize(2,d->getCurrentBufferSizeSamples());if(masterPlugin)masterPlugin->prepareToPlay(rate,d->getCurrentBufferSizeSamples());for(auto& rack:channelInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());for(auto& rack:busInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());pluginMidi.ensureSize(2048); for(auto& b:buses)b.setSize(2,d->getCurrentBufferSizeSamples());transport.prepareToPlay(d->getCurrentBufferSizeSamples(),rate);}
- void audioDeviceStopped() override {enabled=false;multitrack.invalidate();limiterReduction=0;momentaryLufs=-100;shortLufs=-100;integratedLufs=-100;estimatedTruePeak=0;disarmAux();for(auto& a:auxAvailable)a=false;for(auto& p:auxPeak)p=0;peak=0;rms=0;transport.releaseResources();if(masterPlugin)masterPlugin->releaseResources();for(auto& rack:channelInserts)rack.release();for(auto& rack:busInserts)rack.release();}
+ void audioDeviceAboutToStart(AudioIODevice* d) override {enabled=false;deviceFault=false;disarmAux();for(auto& a:auxAvailable)a=false;rate=d->getCurrentSampleRate();multitrack.invalidate();sends.prepare(rate.load(),d->getCurrentBufferSizeSamples());limiter.reset();loudness.reset(rate.load());for(auto& c:ch){c.dsp.reset();c.rightDsp.reset();c.toneLeft.reset();c.toneRight.reset();} playback.setSize(2,d->getCurrentBufferSizeSamples());pluginBuffer.setSize(2,d->getCurrentBufferSizeSamples());if(masterPlugin)masterPlugin->prepareToPlay(rate,d->getCurrentBufferSizeSamples());for(auto& rack:channelInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());for(auto& rack:busInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());pluginMidi.ensureSize(2048); for(auto& b:buses)b.setSize(2,d->getCurrentBufferSizeSamples());transport.prepareToPlay(d->getCurrentBufferSizeSamples(),rate);}
+ void audioDeviceError(const String&) override {deviceFault=true;deviceFaultNotice=true;enabled=false;disarmAux();}
+ void audioDeviceStopped() override {++deviceStopSerial;enabled=false;multitrack.invalidate();limiterReduction=0;momentaryLufs=-100;shortLufs=-100;integratedLufs=-100;estimatedTruePeak=0;disarmAux();for(auto& a:auxAvailable)a=false;for(auto& p:auxPeak)p=0;peak=0;rms=0;transport.releaseResources();if(masterPlugin)masterPlugin->releaseResources();for(auto& rack:channelInserts)rack.release();for(auto& rack:busInserts)rack.release();}
  void audioDeviceIOCallbackWithContext(const float* const* in,int ni,float* const* out,int no,int n,const AudioIODeviceCallbackContext&) override {
   ScopedNoDenormals noDenormals;
-  if(n<=0)return;multitrack.push(in,ni,n);if(!out)return;
+  if(n<=0)return;if(deviceFault.load()){if(out)for(int c=0;c<no;++c)if(out[c])FloatVectorOperations::clear(out[c],n);return;}multitrack.push(in,ni,n);if(!out)return;
   for(int c=0;c<no;++c) if(out[c]) FloatVectorOperations::clear(out[c],n);
   std::array<bool,pulse::auxMixCount> auxActive{};for(int a=0;a<pulse::auxMixCount;++a){bool available=pulse::outputPairAvailable(out,no,a+1);auxAvailable[a]=available;auxActive[a]=available&&auxArmed[a].load()&&enabled.load();auxPeak[a]=0;}
   if(!pulse::outputPairAvailable(out,no,0)||n<=0||n>playback.getNumSamples()) {peak=0;rms=0;return;}
