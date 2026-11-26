@@ -1,8 +1,17 @@
 #pragma once
 #include "AudioEngine.h"
 #if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
  #include <windows.h>
  #include <psapi.h>
+ #ifdef min
+  #undef min
+ #endif
+ #ifdef max
+  #undef max
+ #endif
 #elif JUCE_MAC
  #include <mach/mach.h>
 #elif JUCE_LINUX
@@ -38,9 +47,9 @@ public:
   auto heading=r.removeFromTop(45);
   g.setColour(Colour(0xffedf6fc));g.setFont(Font(22.f,Font::bold));g.drawText("PULSE STUDIO",heading.removeFromTop(27),Justification::centredLeft);
   g.setColour(Colour(0xff92a9bb));g.setFont(11.f);g.drawText("ENTERPRISE / ENGINE OVERVIEW",heading,Justification::centredLeft);
-  auto panel=[&](Rectangle<int> b){g.setColour(Colour(0xff0c1623));g.fillRoundedRectangle(b.toFloat(),7);g.setColour(Colour(0xff293c4d));g.drawRoundedRectangle(b.toFloat(),7,1);};
-  auto title=[&](Rectangle<int> b,const String& text){g.setColour(Colour(0xff91aabd));g.setFont(Font(11.f,Font::bold));g.drawText(text,b,Justification::centredLeft);};
-  auto metric=[&](Rectangle<int> b,const String& name,const String& value,const String& detail){b=b.reduced(3);panel(b);b=b.reduced(9);title(b.removeFromTop(16),name);g.setColour(Colour(0xff36d6d5));g.setFont(Font(25.f,Font::bold));g.drawFittedText(value,b.removeFromTop(34),Justification::centredLeft,1);g.setFont(10.f);g.setColour(Colour(0xff91aabd));g.drawFittedText(detail,b,Justification::centredLeft,1);};
+  auto panel=[&](juce::Rectangle<int> b){g.setColour(Colour(0xff0c1623));g.fillRoundedRectangle(b.toFloat(),7);g.setColour(Colour(0xff293c4d));g.drawRoundedRectangle(b.toFloat(),7,1);};
+  auto title=[&](juce::Rectangle<int> b,const String& text){g.setColour(Colour(0xff91aabd));g.setFont(Font(11.f,Font::bold));g.drawText(text,b,Justification::centredLeft);};
+  auto metric=[&](juce::Rectangle<int> b,const String& name,const String& value,const String& detail){b=b.reduced(3);panel(b);b=b.reduced(9);title(b.removeFromTop(16),name);g.setColour(Colour(0xff36d6d5));g.setFont(Font(25.f,Font::bold));g.drawFittedText(value,b.removeFromTop(34),Justification::centredLeft,1);g.setFont(10.f);g.setColour(Colour(0xff91aabd));g.drawFittedText(detail,b,Justification::centredLeft,1);};
   int h=std::clamp(r.getHeight()/5,70,100);
   auto row=r.removeFromTop(h);metric(row.removeFromLeft(row.getWidth()/2),"CPU",ready?String(e.devices.getCpuUsage()*100,1)+"%":"--","Audio callback load");metric(row,"RAM",ram,"Process resident memory");
   row=r.removeFromTop(h);metric(row.removeFromLeft(row.getWidth()/2),"SAMPLE RATE",ready&&rate>0?String(rate/1000,1)+" kHz":"--","Active audio device");metric(row,"LATENCY",ready&&rate>0?String(block*1000.0/rate,2)+" ms":"--","One buffer, not round-trip");
