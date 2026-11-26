@@ -63,15 +63,29 @@ public:
    result.add(String(i+1)+" | "+(i<names.size()?names[i]:String(input?"Input":"Output")));
   return result;
  }
- StringArray discoverAsioDrivers(){
+ // Read-only inventory of the backends registered by JUCE. Scanning is
+ // explicit and idle-only, because some vendor drivers can block on enumeration.
+ StringArray discoverAudioDevices(bool rescan=true){
   StringArray result;
-  if(!canEditInserts())return result;
-  for(auto* type:devices.getAvailableDeviceTypes())if(type->getTypeName().equalsIgnoreCase("ASIO")){
-   type->scanForDevices();result.addArray(type->getDeviceNames(false));
+  if(rescan&&!canEditInserts())return result;
+  for(auto* type:devices.getAvailableDeviceTypes()){
+   if(rescan)type->scanForDevices();
+   result.add("["+type->getTypeName()+"]");
+   auto ins=type->getDeviceNames(true),outs=type->getDeviceNames(false);
+   if(ins.isEmpty()&&outs.isEmpty()){result.add("  No devices reported");continue;}
+   if(!type->hasSeparateInputsAndOutputs()){
+    StringArray combined=outs;combined.addArray(ins);combined.removeDuplicates(false);
+    for(auto& name:combined)result.add("  I/O: "+name);
+   }else{
+    for(auto& name:ins)result.add("  Input: "+name);
+    for(auto& name:outs)result.add("  Output: "+name);
+   }
   }
   return result;
  }
-
+ StringArray registeredAudioBackends(){
+  StringArray names;for(auto* type:devices.getAvailableDeviceTypes())names.add(type->getTypeName());return names;
+ }
  ~Engine() override {devices.removeAudioCallback(this); multitrack.stop();stopRecord(); transport.setSource(nullptr); stemDisk.stopThread(2000);disk.stopThread(2000);}
  void audioDeviceAboutToStart(AudioIODevice* d) override {disarmAux();for(auto& a:auxAvailable)a=false;rate=d->getCurrentSampleRate();multitrack.invalidate();sends.prepare(rate.load(),d->getCurrentBufferSizeSamples());limiter.reset();loudness.reset(rate.load());for(auto& c:ch){c.dsp.reset();c.rightDsp.reset();c.toneLeft.reset();c.toneRight.reset();} playback.setSize(2,d->getCurrentBufferSizeSamples());pluginBuffer.setSize(2,d->getCurrentBufferSizeSamples());if(masterPlugin)masterPlugin->prepareToPlay(rate,d->getCurrentBufferSizeSamples());for(auto& rack:channelInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());for(auto& rack:busInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());pluginMidi.ensureSize(2048); for(auto& b:buses)b.setSize(2,d->getCurrentBufferSizeSamples());transport.prepareToPlay(d->getCurrentBufferSizeSamples(),rate);}
  void audioDeviceStopped() override {enabled=false;multitrack.invalidate();limiterReduction=0;momentaryLufs=-100;shortLufs=-100;integratedLufs=-100;estimatedTruePeak=0;disarmAux();for(auto& a:auxAvailable)a=false;for(auto& p:auxPeak)p=0;peak=0;rms=0;transport.releaseResources();if(masterPlugin)masterPlugin->releaseResources();for(auto& rack:channelInserts)rack.release();for(auto& rack:busInserts)rack.release();}
