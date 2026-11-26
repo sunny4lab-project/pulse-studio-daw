@@ -4,10 +4,10 @@
 namespace pulse {
 inline bool testProjectRecall(){
  using namespace juce;
- Engine e;
- XmlElement project("PulseProject");project.setAttribute("version",2);
+ Engine e;if(!e.addChannel())return false;
+ XmlElement project("PulseProject");project.setAttribute("version",3);project.setAttribute("channelCount",1);
  if(PluginProject::save(e,project).isNotEmpty()||!project.getChildByName("Plugins")||PluginProject::restore(e,project).isNotEmpty())return false;
- XmlElement missing("PulseProject");missing.setAttribute("version",2);
+ XmlElement missing("PulseProject");missing.setAttribute("version",3);
  if(PluginProject::restore(e,missing).isEmpty())return false;
  auto* bad=project.getChildByName("Plugins")->createNewChildElement("Effect");bad->setAttribute("rack",9999);
  if(PluginProject::restore(e,project).isEmpty())return false;
