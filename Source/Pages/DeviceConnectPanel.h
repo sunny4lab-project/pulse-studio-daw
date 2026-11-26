@@ -69,7 +69,7 @@ public:
   choices(sampleRate,{"Driver default","44100","48000","88200","96000","176400","192000"},1);
   choices(bufferSize,{"Driver default","64","128","256","512","1024","2048"},1);
   choices(inputCount,{"0","1","2","4","8","16","24","32","48","64","128","256"},3);
-  choices(outputCount,{"2","4","6","8"},1);
+  choices(outputCount,{"2","4","6","8","16","24","32","48","64","128","256"},1);outputCount.setEditableText(true);
   sampleRate.setEditableText(true);bufferSize.setEditableText(true);inputCount.setEditableText(true);
   report.setMultiLine(true);report.setReadOnly(true);report.setScrollbarsShown(true);addAndMakeVisible(report);
   for(auto* b:{&refresh,&connect,&advanced,&back})addAndMakeVisible(*b);back.setVisible(false);
