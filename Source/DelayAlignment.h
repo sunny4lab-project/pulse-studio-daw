@@ -3,7 +3,7 @@
 #include <array>
 #include <vector>
 namespace pulse {
-// Standalone fixed-topology alignment planner. Not wired into the live graph.
+// Reference fixed-topology alignment planner; the dynamic audio graph uses the same two-stage approach.
 // The longest path is the reference. Shorter channels align at their bus,
 // then shorter buses and the direct playback path align at the master.
 template<int Channels,int Buses> struct DelayPlan {
