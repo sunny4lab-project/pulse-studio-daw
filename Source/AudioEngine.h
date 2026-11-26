@@ -30,11 +30,11 @@ public:
  std::array<std::atomic<float>,B*pulse::auxMixCount> auxSend{}; std::array<std::atomic<float>,pulse::auxMixCount> auxGain{},auxPeak{}; std::array<std::atomic<bool>,pulse::auxMixCount> auxArmed{},auxAvailable{};
  void disarmAux() noexcept {for(auto& a:auxArmed)a=false;}
  float getAuxSend(int bus,int mix) const noexcept {return auxSend[bus*pulse::auxMixCount+mix].load();}
- AudioPluginFormatManager pluginFormats; pulse::StableList<pulse::InsertRack> channelInserts;std::array<pulse::InsertRack,B> busInserts;
+ AudioPluginFormatManager pluginFormats; pulse::StableList<pulse::InsertRack> channelInserts;std::array<pulse::InsertRack,B> busInserts;pulse::InsertRack masterInserts;
  int channelCount()const{return ch.size();}
  int rackCount()const{return channelCount()+B;}
- pulse::InsertRack& rackAt(int i){return i<channelCount()?channelInserts[i]:busInserts[i-channelCount()];}
- const pulse::InsertRack& rackAt(int i)const{return i<channelCount()?channelInserts[i]:busInserts[i-channelCount()];}
+ pulse::InsertRack& rackAt(int i){return i==rackCount()?masterInserts:i<channelCount()?channelInserts[i]:busInserts[i-channelCount()];}
+ const pulse::InsertRack& rackAt(int i)const{return i==rackCount()?masterInserts:i<channelCount()?channelInserts[i]:busInserts[i-channelCount()];}
  // Call only while idle, with UI references to removed channels released.
  bool addChannels(const std::vector<int>& sources){
   if(sources.empty()||!canEditInserts())return false;
@@ -76,7 +76,7 @@ public:
   for(int b=0;b<B;++b)if(used[b])busDelay[b]=total-maxInput[b]-busLat[b];
   alignmentSamples=total;return total<=pulse::maxAlignmentLatency;
  }
- std::unique_ptr<AudioPluginInstance> masterPlugin; AudioBuffer<float> pluginBuffer; MidiBuffer pluginMidi; std::atomic<bool> pluginBypass{false}; String deviceError; bool started=false;
+ std::unique_ptr<AudioPluginInstance>& masterPlugin=masterInserts.slots[0].plugin; AudioBuffer<float> pluginBuffer; MidiBuffer pluginMidi; std::atomic<bool>& pluginBypass=masterInserts.slots[0].bypass; String deviceError; bool started=false;
  std::atomic<bool> deviceFault{false},deviceFaultNotice{false};std::atomic<unsigned> deviceStopSerial{0};
  Engine(){for(auto& v:auxSend)v=0.f;for(auto& v:auxGain)v=0.25f;for(auto& v:auxPeak)v=0.f;for(auto& a:auxArmed)a=false;for(auto& a:auxAvailable)a=false;for(auto& t:stemTrims)t=1.f;for(auto& m:stemMutes)m=false;juce::addDefaultFormatsToManager(pluginFormats);for(auto& g:busGain)g.store(1.f);for(auto& p:busPeak)p.store(0.f);formats.registerBasicFormats(); disk.startThread();stemDisk.startThread();}
  static File deviceSettingsFile(){return File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("PulseStudio").getChildFile("audio-device.xml");}
@@ -149,9 +149,9 @@ public:
   StringArray names;for(auto* type:devices.getAvailableDeviceTypes())names.add(type->getTypeName());return names;
  }
  ~Engine() override {devices.removeAudioCallback(this); multitrack.stop();stopRecord(); transport.setSource(nullptr); stemDisk.stopThread(2000);disk.stopThread(2000);}
- void audioDeviceAboutToStart(AudioIODevice* d) override {enabled=false;deviceFault=false;disarmAux();for(auto& a:auxAvailable)a=false;rate=d->getCurrentSampleRate();multitrack.invalidate();sends.prepare(rate.load(),d->getCurrentBufferSizeSamples());limiter.reset();loudness.reset(rate.load());for(auto& c:ch){c.dsp.reset();c.rightDsp.reset();c.toneLeft.reset();c.toneRight.reset();} playback.setSize(2,d->getCurrentBufferSizeSamples());pluginBuffer.setSize(2,d->getCurrentBufferSizeSamples());if(masterPlugin)masterPlugin->prepareToPlay(rate,d->getCurrentBufferSizeSamples());for(auto& rack:channelInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());for(auto& rack:busInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());pluginMidi.ensureSize(2048); for(auto& b:buses)b.setSize(2,d->getCurrentBufferSizeSamples());transport.prepareToPlay(d->getCurrentBufferSizeSamples(),rate);prepareAlignment();}
+ void audioDeviceAboutToStart(AudioIODevice* d) override {enabled=false;deviceFault=false;disarmAux();for(auto& a:auxAvailable)a=false;rate=d->getCurrentSampleRate();multitrack.invalidate();sends.prepare(rate.load(),d->getCurrentBufferSizeSamples());limiter.reset();loudness.reset(rate.load());for(auto& c:ch){c.dsp.reset();c.rightDsp.reset();c.toneLeft.reset();c.toneRight.reset();} playback.setSize(2,d->getCurrentBufferSizeSamples());pluginBuffer.setSize(2,d->getCurrentBufferSizeSamples());masterInserts.prepare(rate,d->getCurrentBufferSizeSamples());for(auto& rack:channelInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());for(auto& rack:busInserts)rack.prepare(rate,d->getCurrentBufferSizeSamples());pluginMidi.ensureSize(2048); for(auto& b:buses)b.setSize(2,d->getCurrentBufferSizeSamples());transport.prepareToPlay(d->getCurrentBufferSizeSamples(),rate);prepareAlignment();}
  void audioDeviceError(const String&) override {deviceFault=true;deviceFaultNotice=true;enabled=false;disarmAux();peak=0;rms=0;}
- void audioDeviceStopped() override {++deviceStopSerial;enabled=false;multitrack.invalidate();limiterReduction=0;momentaryLufs=-100;shortLufs=-100;integratedLufs=-100;estimatedTruePeak=0;disarmAux();for(auto& a:auxAvailable)a=false;for(auto& p:auxPeak)p=0;peak=0;rms=0;transport.releaseResources();if(masterPlugin)masterPlugin->releaseResources();for(auto& rack:channelInserts)rack.release();for(auto& rack:busInserts)rack.release();}
+ void audioDeviceStopped() override {++deviceStopSerial;enabled=false;multitrack.invalidate();limiterReduction=0;momentaryLufs=-100;shortLufs=-100;integratedLufs=-100;estimatedTruePeak=0;disarmAux();for(auto& a:auxAvailable)a=false;for(auto& p:auxPeak)p=0;peak=0;rms=0;transport.releaseResources();masterInserts.release();for(auto& rack:channelInserts)rack.release();for(auto& rack:busInserts)rack.release();}
  void audioDeviceIOCallbackWithContext(const float* const* in,int ni,float* const* out,int no,int n,const AudioIODeviceCallbackContext&) override {
   ScopedNoDenormals noDenormals;
   if(n<=0)return;if(deviceFault.load()){if(out)for(int c=0;c<no;++c)if(out[c])FloatVectorOperations::clear(out[c],n);return;}multitrack.push(in,ni,n);if(!out)return;
@@ -167,7 +167,7 @@ public:
   for(int a=0;a<pulse::auxMixCount;++a)if(auxActive[a]){float p=0,g=auxGain[a].load();for(int k=0;k<2;++k){auto* x=out[2*pair[a]+k];for(int i=0;i<n;++i){float y=pulse::outputMixSample(x[i],g);p=std::max(p,std::abs(y));x[i]=pulse::safeOutputSample(y);}}auxPeak[a]=p;}
   sends.render(mixOut[0],mixOut[1],n);
   playback.clear(); AudioSourceChannelInfo info(&playback,0,n); transport.getNextAudioBlock(info);if(pdc){int delay=alignmentSamples.load();if(delay!=playbackDelay){playbackAlignment.configure(delay);playbackDelay=delay;}playbackAlignment.process(playback.getWritePointer(0),playback.getWritePointer(1),n);}
-  for(int c=0;c<2;++c)FloatVectorOperations::add(mixOut[c],playback.getReadPointer(c),n);if(masterPlugin && !pluginBypass){float* ptrs[]={mixOut[0],mixOut[1]};AudioBuffer<float> block(ptrs,2,n);pluginMidi.clear();masterPlugin->processBlock(block,pluginMidi);}float p=0;double squares=0;float masterGain=master.load();for(int c=0;c<2;++c)FloatVectorOperations::multiply(mixOut[c],masterGain,n);
+  for(int c=0;c<2;++c)FloatVectorOperations::add(mixOut[c],playback.getReadPointer(c),n);masterInserts.process(mixOut[0],mixOut[1],n,pluginMidi,true);float p=0;double squares=0;float masterGain=master.load();for(int c=0;c<2;++c)FloatVectorOperations::multiply(mixOut[c],masterGain,n);
   limiter.process(mixOut[0],mixOut[1],n,rate.load(),limiterCeiling.load(),limiterRelease.load(),limiterEnabled.load());limiterReduction=limiter.reduction;
   for(int c=0;c<2;++c){for(int i=0;i<n;++i){p=std::max(p,std::abs(mixOut[c][i]));mixOut[c][i]=pulse::safeOutputSample(mixOut[c][i]);squares+=mixOut[c][i]*mixOut[c][i];}}peak=p;
   if(resetLoudness.exchange(false))loudness.reset(rate.load());loudness.process(mixOut[0],mixOut[1],n);momentaryLufs=loudness.getMomentary();shortLufs=loudness.getShortTerm();integratedLufs=loudness.getIntegrated();estimatedTruePeak=loudness.getHeldPeak();rms=n>0?(float)std::sqrt(squares/(2.0*n)):0.f;if(p>1.f)++clippedBlocks;
@@ -175,7 +175,7 @@ public:
  }
  bool canEditInserts(){const ScopedLock lock(recordLock);return !enabled.load()&&!transport.isPlaying()&&!writer&&!multitrack.active();}
  String changeInsertDescription(int rack,int slot,const PluginDescription* desc){
-  if(rack<0||rack>=rackCount()||slot<0||slot>=pulse::insertsPerRack)return "Invalid insert slot";
+  if(rack<0||rack>rackCount()||slot<0||slot>=pulse::insertsPerRack)return "Invalid insert slot";
   if(!canEditInserts())return "Stop playback and recording and disable live inputs first.";
   auto* d=devices.getCurrentAudioDevice();if(desc&&(!d||!d->isPlaying()))return "Open Audio setup first";
   std::unique_ptr<AudioPluginInstance> instance;
@@ -185,11 +185,11 @@ public:
    if(!instance)return error.isEmpty()?String("Plugin load failed"):error;
    if(instance->getTotalNumInputChannels()!=2||instance->getTotalNumOutputChannels()!=2)return "Only stereo 2-in/2-out effects are supported";
    instance->prepareToPlay(rate.load(),d->getCurrentBufferSizeSamples());int latency=instance->getLatencySamples();instance->releaseResources();
-   int other=0;auto& rackRef=rackAt(rack);for(int i=0;i<pulse::insertsPerRack;++i)if(i!=slot&&rackRef.slots[i].plugin){int l=rackRef.slots[i].plugin->getLatencySamples();if(l<0||l>pulse::maxRackLatency-other)return "Existing rack latency exceeds budget.";other+=l;}
-   if(latency<0||latency>pulse::maxRackLatency-other)return "Effect chain latency exceeds the 4096-sample per-rack budget.";
+   if(rack!=rackCount()){int other=0;auto& rackRef=rackAt(rack);for(int i=0;i<pulse::insertsPerRack;++i)if(i!=slot&&rackRef.slots[i].plugin){int l=rackRef.slots[i].plugin->getLatencySamples();if(l<0||l>pulse::maxRackLatency-other)return "Existing rack latency exceeds budget.";other+=l;}
+   if(latency<0||latency>pulse::maxRackLatency-other)return "Effect chain latency exceeds the 4096-sample per-rack budget.";}
   }
   if(!canEditInserts())return "Transport or live state changed. Stop audio first.";
-  if(started)devices.removeAudioCallback(this);auto& target=rackAt(rack).slots[slot];target.plugin=std::move(instance);target.bypass=false;if(started)devices.addAudioCallback(this);return {};
+  if(started)devices.removeAudioCallback(this);auto& target=rackAt(rack).slots[slot];target.plugin=std::move(instance);target.bypass=false;rackAt(rack).visibleSlots=std::max(rackAt(rack).visibleSlots,slot+1);if(started)devices.addAudioCallback(this);return {};
  }
  String changeInsert(int rack,int slot,const File& file){
   if(file==File{})return changeInsertDescription(rack,slot,nullptr);
@@ -198,14 +198,7 @@ public:
   if(found.isEmpty())return "No compatible plugin found";if(found.size()!=1)return "This file exposes multiple plugins. Choose the individual effect in the plugin browser.";
   return changeInsertDescription(rack,slot,found[0]);
  }
- String loadPluginDescription(const PluginDescription& desc){
-  if(!canEditInserts())return "Stop playback and recording and disable live inputs first.";
-  auto* d=devices.getCurrentAudioDevice();if(!d||!d->isPlaying())return "Open Audio setup first";if(desc.isInstrument)return "Only effects are supported";
-  String error;auto instance=pluginFormats.createPluginInstance(desc,rate.load(),d->getCurrentBufferSizeSamples(),error);
-  if(!instance)return error.isEmpty()?String("Plugin load failed"):error;
-  if(instance->getTotalNumInputChannels()!=2||instance->getTotalNumOutputChannels()!=2)return "Only stereo 2-in/2-out effects are supported";
-  if(started)devices.removeAudioCallback(this);masterPlugin=std::move(instance);pluginBypass=false;if(started)devices.addAudioCallback(this);return {};
- }
+ String loadPluginDescription(const PluginDescription& desc){return changeInsertDescription(rackCount(),0,&desc);}
  String loadPlugin(const File& file){
   if(!canEditInserts())return "Stop audio before scanning effects.";
   OwnedArray<PluginDescription> found;for(auto* format:pluginFormats.getFormats())if(format->fileMightContainThisPluginType(file.getFullPathName()))format->findAllTypesForFile(found,file.getFullPathName());
