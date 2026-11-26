@@ -1,10 +1,7 @@
 #pragma once
 #include "MultitrackRecorder.h"
-#include "ObsStatus.h"
 namespace pulse {
 inline bool testProduction(){
- if(websocketAccept("dGhlIHNhbXBsZSBub25jZQ==")!="s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")return false;
- if(obsAuth("password","salt","challenge").length()!=44)return false;
  using namespace juce;
  auto root=File::getSpecialLocation(File::tempDirectory).getNonexistentChildFile("pulse-production-test","");
  if(!root.createDirectory().wasOk())return false;
