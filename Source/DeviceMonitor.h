@@ -65,6 +65,7 @@ public:
  juce::String status()const{return notice;}
  void beginConfiguration(){configured=true;pending=false;review=true;}
  bool requiresReview()const{return review;}
+ bool canArm()const{return active()&&havePreferred&&!configured&&!pending&&!review&&sameRouting();}
  bool autoEnabled()const{return automatic;}
  void setAutoEnabled(bool enabled){automatic=enabled;dirty=true;}
  bool scanNow(){
