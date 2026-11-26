@@ -7,11 +7,9 @@ namespace pulse {
 class PluginProject {
  static constexpr int maxStateBytes=16*1024*1024;
  static constexpr int maxTotalBytes=32*1024*1024;
- static constexpr int masterRack=N+B;
- static constexpr int slotCount=(N+B)*insertsPerRack+1;
+ 
  struct Pending {std::unique_ptr<juce::AudioPluginInstance> plugin;bool bypass=false;};
- using Slots=std::array<Pending,slotCount>;
- static int index(int rack,int slot){return rack==masterRack?(N+B)*insertsPerRack:rack*insertsPerRack+slot;}
+ static size_t index(int rack,int slot){return (size_t)rack*insertsPerRack+slot;}
  struct Detached {
   Engine& engine;bool attached;
   explicit Detached(Engine& e):engine(e),attached(e.started){if(attached)engine.devices.removeAudioCallback(&engine);}
@@ -20,7 +18,7 @@ class PluginProject {
 public:
  static bool hasPlugins(const Engine& e){
   if(e.masterPlugin)return true;
-  for(const auto& rack:e.inserts)for(const auto& slot:rack.slots)if(slot.plugin)return true;
+  for(int r=0;r<e.rackCount();++r)for(const auto& slot:e.rackAt(r).slots)if(slot.plugin)return true;
   return false;
  }
  static juce::String save(Engine& e,juce::XmlElement& root){
@@ -37,23 +35,25 @@ public:
     item->setAttribute("state",state.toBase64Encoding());
     auto desc=p->getPluginDescription().createXml();item->addChildElement(desc.release());return true;
    };
-   for(int r=0;r<N+B;++r)for(int s=0;s<insertsPerRack;++s){auto& x=e.inserts[r].slots[s];if(!saveOne(r,s,x.plugin.get(),x.bypass.load()))return "Plugin state exceeds project size limit.";}
-   if(!saveOne(masterRack,0,e.masterPlugin.get(),e.pluginBypass.load()))return "Master plugin state exceeds project size limit.";
+   for(int r=0;r<e.rackCount();++r)for(int s=0;s<insertsPerRack;++s){auto& x=e.rackAt(r).slots[s];if(!saveOne(r,s,x.plugin.get(),x.bypass.load()))return "Plugin state exceeds project size limit.";}
+   if(!saveOne(e.rackCount(),0,e.masterPlugin.get(),e.pluginBypass.load()))return "Master plugin state exceeds project size limit.";
   }
   root.addChildElement(new juce::XmlElement(plugins));return {};
  }
- static juce::String restore(Engine& e,const juce::XmlElement& root){
+ static juce::String restore(Engine& e,const juce::XmlElement& root,int targetCount=-1,std::function<void()> beforeSwap={}){
   if(!e.canEditInserts())return "Stop live audio, playback and recording before opening a project.";
   auto* list=root.getChildByName("Plugins");
-  if(!list&&root.getIntAttribute("version")==2)return "Missing plugin rack section.";
-  if(list&&list->getNumChildElements()>slotCount)return "Too many plugin slots.";
+  if(!list&&root.getIntAttribute("version")>=2)return "Missing plugin rack section.";
+  if(targetCount<0)targetCount=e.channelCount();int masterRack=targetCount+B;int oldMaster=targetCount+(root.getIntAttribute("version")<3?legacyBusCount:B);size_t slotCount=index(masterRack,0)+1;
+  if(list&&(size_t)list->getNumChildElements()>slotCount)return "Too many plugin slots for this mixer.";
   auto* d=e.devices.getCurrentAudioDevice();
   if(list&&list->getNumChildElements()>0&&(!d||!d->isPlaying()))return "Open Audio Device setup before restoring a project with plugins.";
-  Slots pending;std::array<bool,slotCount> seen{};size_t total=0;
+  std::vector<Pending> pending(slotCount);std::vector<bool> seen(slotCount,false);size_t total=0;
   if(list)for(auto* x:list->getChildIterator()){
    int rack=x->getIntAttribute("rack",-1),slot=x->getIntAttribute("slot",-1);
+   if(rack==oldMaster)rack=masterRack;else if(rack>=masterRack)return "Project has effects on buses 11–32. Move or remove those effects in the older version first.";
    if(!x->hasTagName("Effect")||rack<0||rack>masterRack||slot<0||slot>=insertsPerRack||(rack==masterRack&&slot!=0)||x->getNumChildElements()!=1)return "Invalid plugin slot in project.";
-   int i=index(rack,slot);if(seen[i])return "Duplicate plugin slot.";seen[i]=true;
+   auto i=index(rack,slot);if(seen[i])return "Duplicate plugin slot.";seen[i]=true;
    juce::PluginDescription desc;if(!desc.loadFromXml(*x->getChildElement(0))||desc.isInstrument)return "Invalid or unsupported effect description.";
    juce::MemoryBlock state;auto encoded=x->getStringAttribute("state");
    if(encoded.length()>24*1024*1024||!state.fromBase64Encoding(encoded)||state.getSize()>maxStateBytes||total+state.getSize()>maxTotalBytes)return "Invalid or oversized plugin state.";
@@ -65,6 +65,7 @@ public:
    if(rack!=masterRack&&latency!=0)return desc.name+" reports latency; channel/bus compensation is not enabled.";
    pending[i].plugin=std::move(p);pending[i].bypass=x->getBoolAttribute("bypass",false);
   }
+  pulse::StableList<Channel> newChannels;pulse::StableList<InsertRack> newRacks;newChannels.reserve(targetCount);newRacks.reserve(targetCount);for(int i=0;i<targetCount;++i){newChannels.append().source=-1;newRacks.append();}
   if(!e.canEditInserts())return "Audio state changed; project was not restored.";
   {
    Detached detached(e);
