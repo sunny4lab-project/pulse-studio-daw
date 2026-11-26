@@ -38,7 +38,7 @@ public:
    text<<"Available sample rates: ";for(auto rate:d->getAvailableSampleRates())text<<juce::String(rate,0)<<" ";text<<"Hz\n";
    text<<"Available buffer sizes: ";for(auto size:d->getAvailableBufferSizes())text<<size<<" ";text<<"samples\n";
    text<<"\nInput slots (active-channel order):\n";for(int i=0;i<ins.size();++i)text<<juce::String(i+1)<<": "<<ins[i]<<"\n";
-   text<<"\nOutput slots (master 1/2, AUX 3/4, 5/6, 7/8):\n";for(int i=0;i<outs.size();++i)text<<juce::String(i+1)<<": "<<outs[i]<<"\n";
+   text<<"\nOutput slots (assign stereo pairs in Routing Matrix):\n";for(int i=0;i<outs.size();++i)text<<juce::String(i+1)<<": "<<outs[i]<<"\n";
   }else text<<"\nNo active audio device. Open Configure device to select one.";
   if(e.deviceError.isNotEmpty()&&!active)text<<"\nError: "<<e.deviceError;
   if(diagnostics.getText()!=text)diagnostics.setText(text,false);
