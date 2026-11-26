@@ -1,5 +1,13 @@
-# Pulse Studio 0.2 Alpha
-Experimental native JUCE 8.0.6 application. Not production ready.
+# Pulse Studio Enterprise 0.16.0
+Experimental native C++17 / JUCE 8.0.6 application. Not production-ready.
+
+## Mixer
+New sessions begin with zero audio input channels and exactly ten renameable stereo summing buses, plus the stereo master. In Mixer, select **+ Audio channel** to add as many audio channels as available resources permit. **Delete channel** opens a channel selection menu. Stop live monitoring, playback and recording before structural edits. New channels are muted and have no assigned input. Open Device to enable physical inputs, then Details to select each mono input or stereo pair. Channels may share a physical input; the number of independent physical signals depends on the interface and driver. Each channel has native processing, two stereo insert slots and a selected bus. The ten bus racks also have two inserts each. The three auxiliary output pairs are separate from the ten summing buses.
+
+There is no fixed software mixer channel limit. CPU, memory, interface capacity, plugin licenses and device settings constrain practical session size. Four-stem arrangement playback and 32-input raw multichannel WAV recording are separate existing subsystems with their own limits.
+
+## Projects
+Version 3 .pulse projects store the variable channel count, routing, ten bus settings, effects, stem paths and plugin state. Older 32-channel projects can be migrated; routes to buses 11–32 are assigned to bus 10, and removed bus settings are not recalled. Projects containing plugins on removed buses are rejected until those plugins are moved or removed in an older version. Save a copy of the original project before migration. Original media and compatible plugins must remain available.
 
 ## Build
 Install Git, CMake 3.22+, and a C++17 compiler (Visual Studio 2022 with Desktop C++ on Windows; Xcode on macOS). Linux dependencies are listed in .github/workflows/build.yml. Internet is required to fetch JUCE during configuration.
@@ -8,20 +16,7 @@ Install Git, CMake 3.22+, and a C++17 compiler (Visual Studio 2022 with Desktop 
     cmake --build build --config Release --parallel 2
     ctest --test-dir build -C Release --output-on-failure
 
-Alternatively upload the contents of this directory, including hidden .github, to a new GitHub repository. In Actions select Pulse Studio build, run workflow, then download the artifact for your OS if successful. Artifacts are unsigned application builds, not installers. Windows ASIO requires a compatible SDK and -DASIO_SDK_DIR=/path/to/sdk; default CI does not enable ASIO. Dante DVS is separately installed/licensed. Review JUCE and ASIO licensing before distribution.
-
-## Current source functionality
-32 mono inputs mixed to stereo, gain/pan/mute/solo, basic high-pass and fixed -18 dBFS threshold compressor with adjustable ratio, smoothed channel gain, stereo file playback and WAV recording, device CPU and writer failure counter. Live inputs start disabled and muted. Use headphones and low levels when testing. Hard clipping protection is not a mastering limiter. Recording is stereo only; device changes during recording are unsupported. Write failure counter does not measure all possible dropouts.
+GitHub Actions builds Windows, macOS and Linux, with a Windows installer and native GUI screenshots. Windows ASIO requires a compatible SDK and -DASIO_SDK_DIR=/path/to/sdk; default CI does not enable ASIO. Dante DVS is separately installed/licensed. Review JUCE and ASIO licensing before distribution.
 
 ## Validation
-Standalone DSP tests passed using g++ in development environment. Full JUCE build not verified; dependency fetch failed in this environment. CI workflow supplied but not executed. No hardware or latency benchmarks performed.
-
-## Roadmap / release gates
-1. Compile on Windows/macOS/Linux; fix compiler issues; test audio devices, sample rates, recording integrity, shutdown and hotplug.
-2. Replace callback locking and shared playback/record disk thread with bounded queues and separate workers; add accurate xrun and recording gap tracking; measure callback deadlines, RAM and CPU.
-3. Add project persistence, stereo input pairs, buses, sends, multitrack recording and playback, VST3/AU scanning and hosting, delay compensation.
-4. Add arrangement, MIDI, automation, editing, clip launching, setlists and keyboard layers.
-5. Add native effects, background analysis, offline AI, remote control and broadcast tools.
-6. Run 8-hour stress tests with WING USB/DVS, 48 kHz and multiple buffer sizes; compare identical workloads against Ableton and REAPER; create signed installers after verification.
-
-No claim of superiority or live safety until tests pass. GUI concepts from prior conversation are design references, not implemented screens.
+Native regression tests include adding 128 mixer channels, deleting a middle channel, verifying stable channel/rack identities, routing audio on bus 10, project restoration, and returning to an empty session. Compilation and hardware verification must be checked for the specific commit. Test with headphones and low levels; never assume production readiness. Plugin latency compensation is not yet connected to the live graph; channel/bus insert effects must report zero latency.
