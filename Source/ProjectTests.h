@@ -5,9 +5,9 @@ namespace pulse {
 inline bool testProjectRecall(){
  using namespace juce;
  Engine e;if(!e.addChannel())return false;
- XmlElement project("PulseProject");project.setAttribute("version",4);project.setAttribute("channelCount",1);e.rackAt(0).visibleSlots=12;
+ XmlElement project("PulseProject");project.setAttribute("version",4);project.setAttribute("channelCount",1);e.rackAt(0).visibleSlots=12;e.masterInserts.visibleSlots=16;
  if(PluginProject::save(e,project).isNotEmpty()||!project.getChildByName("Plugins")||PluginProject::restore(e,project).isNotEmpty())return false;
- if(e.rackAt(0).visibleSlots!=12)return false;
+ if(e.rackAt(0).visibleSlots!=12||e.masterInserts.visibleSlots!=16)return false;
  XmlElement missing("PulseProject");missing.setAttribute("version",3);
  if(PluginProject::restore(e,missing).isEmpty())return false;
  auto* bad=project.getChildByName("Plugins")->createNewChildElement("Effect");bad->setAttribute("rack",9999);
