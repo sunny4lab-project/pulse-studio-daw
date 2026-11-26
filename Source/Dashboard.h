@@ -58,8 +58,7 @@ public:
   const auto neutral=Colour(0xff99afc1),green=Colour(0xff36d99b),warn=Colour(0xffe6b45c);
   status("FOH Status","NOT CONFIGURED",neutral);
   status("Broadcast Status",ready?(clipping?"OUTPUT CLIPPING":"ROUTE UNVERIFIED"):"DEVICE OFFLINE",ready&&clipping?warn:neutral);
-  bool dante=ready&&d->getName().containsIgnoreCase("Dante");
-  status("Dante Status",dante?"DRIVER ACTIVE":"NOT VERIFIED",dante?green:neutral);
+  status("Audio Device",ready?d->getName():String("NOT CONNECTED"),ready?green:neutral);
   if(r.getHeight()>18){g.setColour(neutral);g.setFont(10.f);g.drawFittedText("Status reflects verified local information only.",r.reduced(5),Justification::topLeft,2);}
  }
 };
