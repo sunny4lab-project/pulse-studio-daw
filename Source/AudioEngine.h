@@ -24,8 +24,7 @@ public:
  std::array<std::atomic<float>,B*pulse::auxMixCount> auxSend{}; std::array<std::atomic<float>,pulse::auxMixCount> auxGain{},auxPeak{}; std::array<std::atomic<bool>,pulse::auxMixCount> auxArmed{},auxAvailable{};
  void disarmAux() noexcept {for(auto& a:auxArmed)a=false;}
  float getAuxSend(int bus,int mix) const noexcept {return auxSend[bus*pulse::auxMixCount+mix].load();}
- std::array<pulse::InsertRack,N+B> inserts;
- AudioPluginFormatManager pluginFormats; std::unique_ptr<AudioPluginInstance> masterPlugin; AudioBuffer<float> pluginBuffer; MidiBuffer pluginMidi; std::atomic<bool> pluginBypass{false}; String deviceError; bool started=false;
+ AudioPluginFormatManager pluginFormats; std::array<pulse::InsertRack,N+B> inserts; std::unique_ptr<AudioPluginInstance> masterPlugin; AudioBuffer<float> pluginBuffer; MidiBuffer pluginMidi; std::atomic<bool> pluginBypass{false}; String deviceError; bool started=false;
  Engine(){for(auto& v:auxSend)v=0.f;for(auto& v:auxGain)v=0.25f;for(auto& v:auxPeak)v=0.f;for(auto& a:auxArmed)a=false;for(auto& a:auxAvailable)a=false;for(auto& t:stemTrims)t=1.f;for(auto& m:stemMutes)m=false;pluginFormats.addDefaultFormats();for(auto& g:busGain)g.store(1.f);for(auto& p:busPeak)p.store(0.f);for(int i=0;i<N;++i)ch[i].source=i;formats.registerBasicFormats(); disk.startThread();stemDisk.startThread();}
  void startAudio(){if(started)return; started=true; deviceError=devices.initialise(0,2,nullptr,true); devices.addAudioCallback(this); }
  ~Engine() override {devices.removeAudioCallback(this); stopRecord(); transport.setSource(nullptr); stemDisk.stopThread(2000);disk.stopThread(2000);}
