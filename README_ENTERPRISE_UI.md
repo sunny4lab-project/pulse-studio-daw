@@ -1,0 +1,2 @@
+# Pulse Studio Enterprise UI Overhaul v1
+Based on the supplied starter scaffolding (EnterpriseTheme, HeaderBar, NavigationRail, StatusBar and WorkspaceManager). The empty components have been implemented and wired into the native JUCE application. No browser runtime is required. The shell uses real engine data and preserves existing workspace controls. Existing audio functionality is unchanged; native Dante/SoundGrid/OBS management and multitrack production are not implemented.
