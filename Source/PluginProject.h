@@ -2,7 +2,7 @@
 #include "AudioEngine.h"
 
 namespace pulse {
-// Version 2 projects carry plugin descriptions and opaque state for all inserts
+// Version 2/3 projects carry plugin descriptions and opaque state for all inserts
 // and the master. A failed restore leaves the running rack untouched.
 class PluginProject {
  static constexpr int maxStateBytes=16*1024*1024;
@@ -69,7 +69,8 @@ public:
   if(!e.canEditInserts())return "Audio state changed; project was not restored.";
   {
    Detached detached(e);
-   for(int r=0;r<N+B;++r)for(int s=0;s<insertsPerRack;++s){auto& src=pending[index(r,s)];auto& dst=e.inserts[r].slots[s];dst.plugin=std::move(src.plugin);dst.bypass=src.bypass;}
+   if(beforeSwap)beforeSwap();e.ch.swap(newChannels);e.channelInserts.swap(newRacks);
+   for(int r=0;r<e.rackCount();++r)for(int s=0;s<insertsPerRack;++s){auto& src=pending[index(r,s)];auto& dst=e.rackAt(r).slots[s];dst.plugin=std::move(src.plugin);dst.bypass=src.bypass;}
    auto& src=pending[index(masterRack,0)];e.masterPlugin=std::move(src.plugin);e.pluginBypass=src.bypass;
   }
   return {};
