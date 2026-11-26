@@ -1,7 +1,7 @@
 [Setup]
 AppId=PulseStudioDAW
 AppName=Pulse Studio
-AppVersion=0.17.0
+AppVersion=0.18.0
 DefaultDirName={autopf}\Pulse Studio
 DefaultGroupName=Pulse Studio
 OutputBaseFilename=PulseStudio-Setup
