@@ -18,7 +18,7 @@ public:
   up.onClick=[this]{setFolder(directory.getDirectory().getParentDirectory());};
   home.onClick=[this]{setFolder(File::getSpecialLocation(File::userHomeDirectory));};
  }
- ~BrowserPanel() override {list.removeListener(this);directory.stopSearching();thread.stopThread(2000);}
+ ~BrowserPanel() override {list.removeListener(this);directory.clear();thread.stopThread(2000);}
  void setFolder(File f){if(!f.isDirectory())f=File::getSpecialLocation(File::userHomeDirectory);directory.setDirectory(f,true,true);location.setText(f.getFileName().isEmpty()?f.getFullPathName():f.getFileName(),dontSendNotification);location.setTooltip(f.getFullPathName());}
  void selectionChanged() override {}
  void fileClicked(const File&,const MouseEvent&) override {}
