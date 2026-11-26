@@ -2,6 +2,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <array>
 #include <atomic>
+#include <cmath>
 namespace pulse {
 constexpr int insertsPerRack=2;
 struct InsertSlot {
