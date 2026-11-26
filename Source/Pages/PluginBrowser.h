@@ -110,7 +110,8 @@ public:
   clearBlacklist.onClick=[this]{if(scanning||!e.canEditInserts())return;known.clearBlacklistedFiles();pedal().deleteFile();persist();status.setText("Skipped plugins cleared. Scan again only if safe.",juce::dontSendNotification);};
   restore();updateList(true);status.setText(juce::String(known.getNumTypes())+" cached plugins. Scan installed effects or a specific bundle.",juce::dontSendNotification);setSize(740,520);
  }
- ~PluginBrowser()override{stopTimer();scanner.reset();persist();}
+ void shutdown(){stopTimer();scanner.reset();scanning=false;persist();}
+ ~PluginBrowser()override{list.setModel(nullptr);shutdown();}
  void resized()override{
   auto r=getLocalBounds().reduced(10);heading.setBounds(r.removeFromTop(29));auto row=r.removeFromTop(30);search.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));manufacturer.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));category.setBounds(row.reduced(2));
   row=r.removeFromTop(32);int n=4;for(auto* b:{&scan,&file,&cancel,&clearBlacklist})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));
