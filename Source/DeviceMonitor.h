@@ -43,8 +43,8 @@ class DeviceMonitor final : private juce::AudioIODeviceType::Listener {
   e.enabled=false;e.disarmAux();e.transport.stop();e.stopRecord();e.multitrack.stop();
  }
  void reconnect(){
-  if(!havePreferred||!exactDevicePresent()||!e.canEditInserts())return;
   lastAttempt=juce::Time::getMillisecondCounter();
+  if(!havePreferred||!exactDevicePresent()||!e.canEditInserts())return;
   juce::XmlElement xml("DEVICESETUP");
   xml.setAttribute("deviceType",preferredType);xml.setAttribute("audioInputDeviceName",preferred.inputDeviceName);xml.setAttribute("audioOutputDeviceName",preferred.outputDeviceName);
   xml.setAttribute("audioDeviceRate",preferred.sampleRate);xml.setAttribute("audioDeviceBufferSize",preferred.bufferSize);
@@ -85,16 +85,17 @@ public:
    configured=false;pending=false;review=!ready;havePreferred=false;
    if(ready){remember();notice="Device configured. Verify routing before enabling LIVE.";}else notice="No active device. Configure an interface.";
    dirty=true;
+  }else if(pending&&ready&&sameRouting()&&!lostEvent){pending=false;review=false;remember();notice="Previous interface available again. LIVE remains off.";
   }else if(havePreferred&&(lostEvent||!ready||!sameRouting())){
    if(!pending){disarm();pending=true;review=true;dirty=true;notice="Previous interface lost or routing changed. Live monitoring disabled.";}
    if(ready&&sameRouting()&&!lostEvent){pending=false;review=false;remember();notice="Previous interface available again. LIVE remains off.";}
   }else if(ready&&!havePreferred){remember();review=false;notice="Audio device active. Verify routing before enabling LIVE.";}
   if(lostEvent){disarm();review=true;if(havePreferred)pending=true;}
   // Never probe vendor drivers while processing a live mix or recording.
-  if(!configOpen&&e.canEditInserts()&&(watched.empty()||dirty.load()||(automatic&&now-lastScan>=10000))){
+  if(!configOpen&&e.canEditInserts()&&(watched.empty()||dirty.load()||now-lastScan>=10000)){
    scanNow();
   }
-  if(!configOpen&&automatic&&pending&&e.started&&e.canEditInserts()&&now-lastAttempt>=10000)reconnect();
+  if(!configOpen&&automatic&&pending&&e.started&&e.canEditInserts()&&(lastAttempt==0||now-lastAttempt>=10000))reconnect();
  }
 };
 }
