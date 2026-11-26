@@ -2,7 +2,7 @@
 #include "../MixerStrip.h"
 #include "../UI/EnterpriseTheme.h"
 class ChannelInspector : public Component {
- OwnedArray<Strip>& strips;ComboBox selected,page;std::array<Slider,3> knobs;std::array<Label,3> labels;Label heading,hint;TextButton bypass{"Tone bypass"};
+ OwnedArray<Strip>& strips;ComboBox selected,page;std::array<Slider,3> knobs;std::array<Label,3> labels;Label heading,hint;TextButton bypass{"Tone bypass"};bool configuring=false;
  Strip* current() const {int i=selected.getSelectedId()-1;return i>=0&&i<strips.size()?strips[i]:nullptr;}
  int section() const {return page.getSelectedId();}
  void syncValues(){if(auto* s=current()){
@@ -12,14 +12,14 @@ class ChannelInspector : public Component {
   for(int i=0;i<3;++i)if(!knobs[i].isMouseButtonDown())knobs[i].setValue(v[i],dontSendNotification);
   bypass.setToggleState(s->c.toneBypass.load(),dontSendNotification);
  }}
- void configure(){
+ void configure(){configuring=true;
   auto set=[&](int i,const String& name,double min,double max,double step,const String& suffix){labels[i].setText(name,dontSendNotification);knobs[i].setRange(min,max,step);knobs[i].setTextValueSuffix(suffix);knobs[i].setSkewFactor(1);knobs[i].setVisible(true);labels[i].setVisible(true);};
   if(section()==1){set(0,"High-pass",0,250,1," Hz");set(1,"Comp threshold",-60,0,.1," dB");set(2,"Comp ratio",1,8,.1,":1");hint.setText("Existing channel compressor and HPF.",dontSendNotification);}
   else if(section()==2){set(0,"Gate threshold",-80,-10,.1," dB");set(1,"De-ess threshold",-80,-6,.1," dB");knobs[2].setVisible(false);labels[2].setVisible(false);hint.setText("-80 dB = off; de-esser targets high band.",dontSendNotification);}
   else {set(0,"Frequency",20,18000,1," Hz");knobs[0].setSkewFactorFromMidPoint(1000);set(1,"EQ gain",-12,12,.1," dB");set(2,"Q",.3,8,.1,"");hint.setText("Parametric bell filter; 0 dB = flat.",dontSendNotification);}
-  syncValues();
+  syncValues();configuring=false;
  }
- void change(int i){if(auto* s=current()){float v=(float)knobs[i].getValue();if(section()==1){if(i==0)s->hp.setValue(v,sendNotificationSync);else if(i==1)s->c.threshold=v;else s->ratio.setValue(v,sendNotificationSync);}else if(section()==2){if(i==0)s->c.gateThreshold=v;else if(i==1)s->c.deessThreshold=v;}else{int b=jlimit(0,2,section()-3);if(i==0)s->c.eqFreq[b]=v;else if(i==1)s->c.eqGain[b]=v;else s->c.eqQ[b]=v;}}}
+ void change(int i){if(configuring)return;if(auto* s=current()){float v=(float)knobs[i].getValue();if(section()==1){if(i==0)s->hp.setValue(v,sendNotificationSync);else if(i==1)s->c.threshold=v;else s->ratio.setValue(v,sendNotificationSync);}else if(section()==2){if(i==0)s->c.gateThreshold=v;else if(i==1)s->c.deessThreshold=v;}else{int b=jlimit(0,2,section()-3);if(i==0)s->c.eqFreq[b]=v;else if(i==1)s->c.eqGain[b]=v;else s->c.eqQ[b]=v;}}}
 public:
  explicit ChannelInspector(OwnedArray<Strip>& s):strips(s){
   for(int i=0;i<N;++i)selected.addItem("Channel "+String(i+1),i+1);selected.setSelectedId(1,dontSendNotification);
