@@ -53,14 +53,13 @@ public:
   int h=std::clamp(r.getHeight()/5,70,100);
   auto row=r.removeFromTop(h);metric(row.removeFromLeft(row.getWidth()/2),"CPU",ready?String(e.devices.getCpuUsage()*100,1)+"%":"--","Audio callback load");metric(row,"RAM",ram,"Process resident memory");
   row=r.removeFromTop(h);metric(row.removeFromLeft(row.getWidth()/2),"SAMPLE RATE",ready&&rate>0?String(rate/1000,1)+" kHz":"--","Active audio device");metric(row,"LATENCY",ready&&rate>0?String(block*1000.0/rate,2)+" ms":"--","One buffer, not round-trip");
-  r.removeFromTop(5);auto card=r.removeFromTop(std::min(r.getHeight(),204)).reduced(3);panel(card);card=card.reduced(10);title(card.removeFromTop(22),"SERVICE STATUS");
+  r.removeFromTop(5);auto card=r.removeFromTop(std::min(r.getHeight(),170)).reduced(3);panel(card);card=card.reduced(10);title(card.removeFromTop(22),"SERVICE STATUS");
   auto status=[&](const String& name,const String& value,Colour color){auto b=card.removeFromTop(std::min(32,card.getHeight()));g.setColour(Colour(0xff1c2b39));g.drawHorizontalLine(b.getBottom()-1,(float)b.getX(),(float)b.getRight());g.setColour(Colour(0xffd2dfe9));g.setFont(12.f);g.drawFittedText(name,b.removeFromLeft(b.getWidth()*42/100),Justification::centredLeft,1);g.setColour(color);g.setFont(Font(11.f,Font::bold));g.drawFittedText(value,b,Justification::centredRight,1);};
   const auto neutral=Colour(0xff99afc1),green=Colour(0xff36d99b),warn=Colour(0xffe6b45c);
   status("FOH Status","NOT CONFIGURED",neutral);
   status("Broadcast Status",ready?(clipping?"OUTPUT CLIPPING":"ROUTE UNVERIFIED"):"DEVICE OFFLINE",ready&&clipping?warn:neutral);
   bool dante=ready&&d->getName().containsIgnoreCase("Dante");
   status("Dante Status",dante?"DRIVER ACTIVE":"NOT VERIFIED",dante?green:neutral);
-  status("OBS Status","NOT CONNECTED",neutral);
   if(r.getHeight()>18){g.setColour(neutral);g.setFont(10.f);g.drawFittedText("Status reflects verified local information only.",r.reduced(5),Justification::topLeft,2);}
  }
 };
