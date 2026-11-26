@@ -28,7 +28,7 @@ jobs:
           if ($p.HasExited) { throw "Startup failed: $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
           $stemTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-stems' -Wait -PassThru
-          if ($stemTest.ExitCode -ne 0) { throw 'Stem streaming regression failed' }
+          if ($stemTest.ExitCode -ne 0) { throw 'Stem streaming or auxiliary output regression failed' }
           $preview = Start-Process -FilePath $exe.FullName -ArgumentList '--capture-ui' -WorkingDirectory $PWD.Path -Wait -PassThru
           if ($preview.ExitCode -ne 0) { throw 'UI snapshot failed' }
           foreach ($width in @(864,1360)) { foreach ($workspace in (0..12)) { $suffix = if ($workspace -eq 0) { "" } else { "-$workspace" }; if (!(Test-Path "PulseStudio-UI-$width$suffix.png")) { throw "Missing UI snapshot $width/$workspace" } } }
