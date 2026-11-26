@@ -1,5 +1,7 @@
 #include "Dsp.h"
 #include "ToneDSP.h"
+#include "MasterDSP.h"
+#include "DelayAlignment.h"
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
@@ -14,4 +16,21 @@ static void testTone(){
  t.gate=-80;t.deess=-32;dsp.prepare(t,rate);assert(measure(10000,.5f)<.30);
  t.bypass=true;dsp.prepare(t,rate);assert(dsp.process(.37f)==.37f);
 }
-int main(){testTone();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}
+static void testMaster(){
+ pulse::MasterLimiter limiter;float l[4]={2.f,.5f,-3.f,0.f},r[4]={1.f,.25f,-1.5f,0.f};
+ limiter.process(l,r,4,48000,-1,100,true);
+ for(int i=0;i<4;++i){assert(std::abs(l[i])<=.89126f);assert(std::abs(r[i])<=.89126f);assert(std::abs(l[i]-2*r[i])<.0001f);}assert(limiter.reduction>10);
+ pulse::LoudnessMeter meter;meter.reset(48000);std::array<float,480> a{};
+ for(int block=0;block<500;++block){for(int i=0;i<480;++i)a[i]=.1f*std::sin(6.28318530718*1000*(block*480+i)/48000.0);meter.process(a.data(),a.data(),480);}
+ assert(meter.getIntegrated()>-21.0&&meter.getIntegrated()<-19.0);
+ assert(meter.getMomentary()>-21&&meter.getShortTerm()<-19);
+ assert(meter.getHeldPeak()>=.0999f&&meter.getHeldPeak()<.12f);
+ meter.reset(48000);a.fill(0);meter.process(a.data(),a.data(),480);assert(meter.getIntegrated()==-100);
+}
+static void testDelayPlan(){
+ auto p=pulse::DelayPlan<3,2>::calculate({10,40,8},{0,0,1},{20,5},0,100);
+ assert(p.valid&&p.total==60&&p.channelDelay[0]==30&&p.channelDelay[1]==0&&p.busDelay[1]==47&&p.playbackDelay==60);
+ assert((!pulse::DelayPlan<3,2>::calculate({10,40,8},{0,0,1},{20,5},0,50).valid));
+ pulse::StereoAlignDelay d;d.prepare(64);assert(d.configure(3));float l[]={1,0,0,0,0},r[]={.5f,0,0,0,0};d.process(l,r,5);assert(l[0]==0&&l[3]==1&&r[3]==.5f);assert(!d.configure(65));
+}
+int main(){testTone();testMaster();testDelayPlan();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}
