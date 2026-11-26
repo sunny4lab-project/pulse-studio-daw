@@ -1,4 +1,4 @@
-# Pulse Studio Enterprise 0.19.0
+# Pulse Studio Enterprise 0.19.1
 Experimental native C++17 / JUCE 8.0.11 application. Not production-ready.
 
 ## Mixer
@@ -17,6 +17,9 @@ There is no fixed software mixer channel limit. CPU, memory, interface capacity,
 Focusrite, Behringer WING, Allen & Heath, Dante Virtual Soundcard and other hardware use the same driver-based workflow. Support is contingent on a compatible installed driver and actual hardware testing. Network audio subscriptions and console remote-control functions remain external. Automatic discovery uses JUCE device-list notifications plus a ten-second idle scan, with a one-second notification debounce. Vendor scans are intentionally suspended during live monitoring, playback and recording. Auto reconnect (on by default, user-toggleable) retries the previous device and channel masks when it becomes available, only while idle. Pulse Studio disarms and stops playback/recording on detected loss, rejects unreviewed fallback routing, and never re-arms live audio automatically. Use Configure device to accept a different interface, then manually enable LIVE. Use Add input channels to create muted, named mixer strips for unused enabled input slots in one operation. This is driver-reported discovery, not manufacturer-specific USB/network identification; identical device names may not be unique. Simultaneous independent interfaces are not implemented. Actual hot-plug and reconnection behavior is driver-dependent and requires physical testing.
 
 The Windows CI smoke test checks ASIO backend registration without physical hardware. Review JUCE and applicable ASIO licensing before distributing the binary.
+
+### Driver startup recovery
+If a driver fails to start, use the new connection screen to choose the backend, device, sample rate, buffer and initial channel counts before clicking Connect. Selection alone does not open a default device. Start with the driver defaults and 2 inputs / 2 outputs (or a known supported rate and buffer). After connecting, use Advanced settings for individual physical channel masks and the driver control panel. Previously saved configurations are still recalled when first opening Device. The connection report retains the requested settings and the driver's error. The app cannot repair an unavailable driver, missing hardware clock, exclusive access conflict or a driver that does not deliver callbacks. No alternate device is opened by an explicit failed Connect attempt.
 
 ## Projects
 Version 3 .pulse projects store the variable channel count, routing, ten bus settings, effects, stem paths and plugin state. Older 32-channel projects can be migrated; routes to buses 11–32 are assigned to bus 10, and removed bus settings are not recalled. Projects containing plugins on removed buses are rejected until those plugins are moved or removed in an older version. Save a copy of the original project before migration. Original media and compatible plugins must remain available.
