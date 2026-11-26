@@ -16,7 +16,7 @@ public:
   remove.onClick=[this]{int i=list.getSelectedRow();if(i>=0&&i<files.size()){files.remove(i);list.updateContent();list.selectRow(std::min(i,files.size()-1));repaint();}};
   load.onClick=[this]{activate(list.getSelectedRow());};
   next.onClick=[this]{int i=list.getSelectedRow()+1;if(i<files.size()){list.selectRow(i);activate(i);}};
-  up.onClick=[this]{int i=list.getSelectedRow();if(i>0&&i<files.size()){files.swap(i,i-1);list.updateContent();list.selectRow(i-1);repaint();}};
+  up.onClick=[this]{int i=list.getSelectedRow();if(i>0&&i<files.size()){files.move(i,i-1);list.updateContent();list.selectRow(i-1);repaint();}};
  }
  ~SetlistPanel() override {list.setModel(nullptr);}
  int getNumRows() override {return files.size();}
