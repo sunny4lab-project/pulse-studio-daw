@@ -54,6 +54,10 @@ inline bool testConsolidated(){
   float target=i==20?.3f*std::sqrt(.5f):0.f;
   if(std::abs(output.getSample(k,i)-target)>.0005f)return false;
  }
+ // A master effect in a newly added high slot must actually process the mix.
+ e.masterInserts.visibleSlots=16;e.masterInserts.slots[15].plugin=std::make_unique<TestDelayEffect>(4);e.masterInserts.prepare(48000,block);
+ e.audioDeviceIOCallbackWithContext(ins,3,outs,2,block,{});
+ for(int k=0;k<2;++k)for(int i=0;i<block;++i){float target=i==24?.3f*std::sqrt(.5f):0.f;if(std::abs(output.getSample(k,i)-target)>.0005f)return false;}
  // Runtime excessive latency must fail closed rather than emit misaligned audio.
  e.channelInserts[0].slots[0].plugin->setLatencySamples(maxRackLatency+1);
  e.audioDeviceIOCallbackWithContext(ins,3,outs,2,block,{});
