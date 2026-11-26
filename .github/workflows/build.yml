@@ -1,5 +1,8 @@
 name: Pulse Studio build
 on: [push, pull_request, workflow_dispatch]
+concurrency:
+  group: pulse-studio-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 jobs:
   build:
     strategy:
@@ -30,7 +33,7 @@ jobs:
           $asioTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-asio' -Wait -PassThru
           if ($asioTest.ExitCode -ne 0) { throw 'ASIO backend missing from Windows build' }
           $stemTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-stems' -Wait -PassThru
-          if ($stemTest.ExitCode -ne 0) { throw 'Native audio, project recall, dynamic mixer or device policy regression failed' }
+          if ($stemTest.ExitCode -ne 0) { throw 'Native audio, project recall, device policy, plugin library or alignment regression failed' }
           $preview = Start-Process -FilePath $exe.FullName -ArgumentList '--capture-ui' -WorkingDirectory $PWD.Path -Wait -PassThru
           if ($preview.ExitCode -ne 0) { throw 'UI snapshot failed' }
           foreach ($width in @(864,1360)) { foreach ($workspace in (0..14)) { $suffix = if ($workspace -eq 0) { "" } else { "-$workspace" }; if (!(Test-Path "PulseStudio-UI-$width$suffix.png")) { throw "Missing UI snapshot $width/$workspace" } } }
