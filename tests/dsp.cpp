@@ -2,6 +2,7 @@
 #include "ToneDSP.h"
 #include "MasterDSP.h"
 #include "DelayAlignment.h"
+#include "CallbackDeadline.h"
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
@@ -33,4 +34,14 @@ static void testDelayPlan(){
  assert((!pulse::DelayPlan<3,2>::calculate({10,40,8},{0,0,1},{20,5},0,50).valid));
  pulse::StereoAlignDelay d;d.prepare(64);assert(d.configure(3));float l[]={1,0,0,0,0},r[]={.5f,0,0,0,0};d.process(l,r,5);assert(l[0]==0&&l[3]==1&&r[3]==.5f);assert(!d.configure(65));
 }
-int main(){testTone();testMaster();testDelayPlan();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}
+static void testCallbackDeadline(){
+ pulse::CallbackDeadline meter;
+ // 480 frames at 48 kHz have a 10 ms buffer deadline.
+ meter.record(.002,480,48000);assert(meter.latestPermille==200&&meter.peakPermille==200&&meter.missedDeadlines==0);
+ meter.record(.012,480,48000);assert(meter.latestPermille==1200&&meter.peakPermille==1200&&meter.missedDeadlines==1);
+ meter.record(.001,480,48000);assert(meter.latestPermille==100&&meter.peakPermille==1200&&meter.missedDeadlines==1);
+ meter.record(-1,480,48000);meter.record(.1,0,48000);meter.record(.1,480,0);assert(meter.missedDeadlines==1);
+ meter.record(1e6,480,48000);assert(meter.peakPermille==100000&&meter.missedDeadlines==2);
+ meter.reset();assert(meter.latestPermille==0&&meter.peakPermille==0&&meter.missedDeadlines==0);
+}
+int main(){testTone();testMaster();testDelayPlan();testCallbackDeadline();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}

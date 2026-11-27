@@ -18,6 +18,15 @@ inline bool testTrackUpgrade(){
  if(std::abs(output.getSample(0,block-1)+.2f*std::sqrt(.5f))>.001f)return pulse::testFailure(__FILE__,__LINE__);
  e.dcaMute[0]=true;for(int i=0;i<16;++i)e.audioDeviceIOCallbackWithContext(in,2,out,2,block,{});
  if(output.getMagnitude(0,block)>.001f)return pulse::testFailure(__FILE__,__LINE__);
+ // Silent channels keep raw input meters but release their native DSP state.
+ if(e.ch[0].processingActive||e.ch[1].processingActive||e.ch[0].dsp.gain!=0.f||e.ch[1].dsp.gain!=0.f)return pulse::testFailure(__FILE__,__LINE__);
+ if(std::abs(e.ch[0].peak.load()-.2f)>.001f||std::abs(e.ch[1].peak.load()-.6f)>.001f)return pulse::testFailure(__FILE__,__LINE__);
+ e.dcaMute[0]=false;for(int i=0;i<32;++i)e.audioDeviceIOCallbackWithContext(in,2,out,2,block,{});
+ if(!e.ch[0].processingActive||std::abs(output.getSample(0,block-1)+.2f*std::sqrt(.5f))>.001f)return pulse::testFailure(__FILE__,__LINE__);
+ e.ch[0].source=-1;e.audioDeviceIOCallbackWithContext(in,2,out,2,block,{});
+ if(e.ch[0].processingActive||e.ch[0].dsp.gain!=0||e.ch[0].peak.load()!=0)return pulse::testFailure(__FILE__,__LINE__);
+ e.ch[0].source=0;for(int i=0;i<32;++i)e.audioDeviceIOCallbackWithContext(in,2,out,2,block,{});
+ if(std::abs(output.getSample(0,block-1)+.2f*std::sqrt(.5f))>.001f)return pulse::testFailure(__FILE__,__LINE__);
  e.enabled=false;
  // Eighth band must actually change the response; optional ceiling must constrain samples.
  ToneSettings tone;ToneDSP dsp;tone.frequency[7]=1000;tone.gain[7]=6;dsp.prepare(tone,48000);

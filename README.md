@@ -1,5 +1,20 @@
-# Pulse Studio Enterprise 0.24.0
+# Pulse Studio Enterprise 0.24.1
 Experimental native C++17 / JUCE 8.0.11 application. Not production-ready.
+
+## Live performance efficiency and monitoring (0.24.1)
+Mapped inputs retain their raw peak meter while muted, solo-excluded, master live-off,
+or DCA-muted, but bypass expensive per-sample strip DSP and inserts until audible
+again. State resets on the transition to silence to prevent stale filter or fader
+history from leaking into the next live activation. This does not reduce CPU used by
+unmuted channels or unrelated master/bus processing.
+
+Analytics now shows driver-reported average CPU, the worst measured callback time
+relative to its buffer deadline, estimated deadline warnings and recording write
+failures. A 100% callback peak means processing took the entire audio-buffer time
+budget; a deadline warning indicates a risk of underrun, not definitive proof of
+an audible glitch. The counters reset when the audio driver starts, and are not a
+substitute for real device, clock, latency or sustained-load validation. The audio
+thread updates fixed-size atomic counters with no allocations or logging.
 
 ## Mixer
 New sessions begin with zero audio input channels and exactly ten renameable stereo summing buses, plus the stereo master. In Mixer, select **+ Audio channel** to add as many audio channels as available resources permit. **Delete channel** opens a channel selection menu. Stop live monitoring, playback and recording before structural edits. New channels are muted and have no assigned input. Open Device to enable physical inputs, then Details to select each mono input or stereo pair. Channels may share a physical input; the number of independent physical signals depends on the interface and driver. Each channel has native processing, a selected bus and an expandable stereo insert rack. Channels, buses and master start with two visible slots and can expand to sixteen. The three auxiliary output pairs are separate from the ten summing buses.
