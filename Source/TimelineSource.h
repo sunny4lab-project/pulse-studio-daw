@@ -3,6 +3,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include "TimelineMusic.h"
 namespace pulse {
 using Frame=juce::int64;
 inline constexpr double timelineRate=48000.0;
@@ -12,11 +13,11 @@ struct AudioClip {
 };
 struct TimelineTrack {
  juce::String name;float gain=1.f,pan=0.f;bool mute=false,solo=false;
- std::vector<AudioClip> clips;
+ std::vector<AudioClip> clips;std::vector<MidiNote> notes;std::vector<AutomationPoint> gainAutomation,panAutomation;int instrument=0;
 };
 struct TimelineSession {
  std::vector<TimelineTrack> tracks;
- Frame length()const{Frame end=0;for(auto& t:tracks)for(auto& c:t.clips)end=std::max(end,c.start+c.length);return end;}
+ Frame length()const{Frame end=0;for(auto& t:tracks){for(auto& c:t.clips)end=std::max(end,c.start+c.length);for(auto& n:t.notes)end=std::max(end,n.start+n.length);}return end;}
  bool split(int track,int clip,Frame at){
   if(track<0||track>=(int)tracks.size())return false;auto& v=tracks[track].clips;
   if(clip<0||clip>=(int)v.size())return false;auto c=v[clip];Frame cut=at-c.start;if(cut<=0||cut>=c.length)return false;
@@ -41,6 +42,8 @@ public:
   auto src=std::unique_ptr<TimelineSource>(new TimelineSource(std::move(s)));
   for(auto& t:src->model.tracks){
    if(!std::isfinite(t.gain)||t.gain<0||t.gain>4||!std::isfinite(t.pan)||std::abs(t.pan)>1){error="Invalid track gain/pan.";return {};}
+   if(t.instrument<0||t.instrument>3||!validAutomation(t.gainAutomation,timelineLimit,0,4)||!validAutomation(t.panAutomation,timelineLimit,-1,1)){error="Invalid instrument or automation.";return {};}
+   for(auto& n:t.notes)if(n.start<0||n.start>=timelineLimit||n.length<=0||n.length>timelineLimit-n.start||n.pitch<0||n.pitch>127||!std::isfinite(n.velocity)||n.velocity<0||n.velocity>1){error="Invalid MIDI note.";return {};}
    src->anySolo|=t.solo;
    for(auto& c:t.clips){
     std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(c.file));
@@ -62,11 +65,10 @@ public:
   if(!info.buffer||info.numSamples<=0)return;info.clearActiveBufferRegion();Frame pos=position.load();
   for(auto& item:items){
    auto& t=*item.track;auto& c=*item.clip;auto& r=*item.reader;
-   if(t.mute||(anySolo&&!t.solo)||t.gain==0||c.gain==0)continue;
+   if(t.mute||(anySolo&&!t.solo)||(t.gain==0&&t.gainAutomation.empty())||c.gain==0)continue;
    Frame begin=std::max(pos,c.start),end=std::min(pos+info.numSamples,c.start+c.length);
    if(end<=begin)continue;
-   double ratio=r.sampleRate/timelineRate;float g=t.gain*c.gain;
-   float panL=std::min(1.f,1.f-t.pan),panR=std::min(1.f,1.f+t.pan);
+   double ratio=r.sampleRate/timelineRate;float g=c.gain;
    for(Frame p=begin;p<end;){
     int n=(int)std::min<Frame>(1024,end-p);
     double first=(double)(c.offset+p-c.start)*ratio;Frame base=(Frame)std::floor(first);
@@ -77,10 +79,13 @@ public:
      double x=first-base+i*ratio;int j=(int)x;float f=(float)(x-j);Frame local=p+i-c.start;
      float env=1.f;if(c.fadeIn>0)env=std::min(env,(float)local/(float)c.fadeIn);
      if(c.fadeOut>0)env=std::min(env,(float)(c.length-1-local)/(float)c.fadeOut);
-     for(int k=0;k<std::min(2,info.buffer->getNumChannels());++k){auto* data=scratch.getReadPointer(r.numChannels==1?0:k);float v=data[j]+f*(data[j+1]-data[j]);if(std::isfinite(v))info.buffer->addSample(k,info.startSample+(int)(p-pos)+i,v*g*env*(k?panR:panL));}
+     float gain=automationAt(t.gainAutomation,p+i,t.gain),pan=automationAt(t.panAutomation,p+i,t.pan);float panL=std::min(1.f,1.f-pan),panR=std::min(1.f,1.f+pan);
+     for(int k=0;k<std::min(2,info.buffer->getNumChannels());++k){auto* data=scratch.getReadPointer(r.numChannels==1?0:k);float v=data[j]+f*(data[j+1]-data[j]);if(std::isfinite(v))info.buffer->addSample(k,info.startSample+(int)(p-pos)+i,v*g*gain*env*(k?panR:panL));}
     }p+=n;
    }
-  }position=pos+info.numSamples;
+  }
+  for(auto& t:model.tracks){if(t.mute||(anySolo&&!t.solo))continue;for(auto& note:t.notes){Frame begin=std::max(pos,note.start),end=std::min(pos+info.numSamples,note.start+note.length);for(Frame p=begin;p<end;++p){float value=instrumentSample(t.instrument,note.pitch,p-note.start,note.length,note.velocity,timelineRate)*automationAt(t.gainAutomation,p,t.gain);float pan=automationAt(t.panAutomation,p,t.pan);for(int k=0;k<std::min(2,info.buffer->getNumChannels());++k)info.buffer->addSample(k,info.startSample+(int)(p-pos),value*std::min(1.f,1.f+(k?pan:-pan)));}}}
+  position=pos+info.numSamples;
  }
 };
 }
