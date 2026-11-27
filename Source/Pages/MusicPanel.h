@@ -7,7 +7,7 @@ class MusicPanel final : public juce::Component,private juce::MidiInputCallback,
  pulse::TimelineTrack track;std::function<bool(const pulse::TimelineTrack&)> applyTrack;
  juce::ComboBox instrument,mode,device,octave;
  juce::Slider length,velocity,grid;
- juce::TextButton apply{"Apply to track"},clear{"Clear lane"},record{"Record MIDI"},stop{"Stop MIDI"};
+ juce::TextButton apply{"Apply to track"},clear{"Clear lane"},record{"Record MIDI"},stop{"Stop MIDI"},importMidi{"Import MIDI"};std::unique_ptr<juce::FileChooser> chooser;
  juce::Label title,status;juce::Array<juce::MidiDeviceInfo> devices;
  std::unique_ptr<juce::MidiInput> input;juce::CriticalSection mutex;
  struct Pending{Frame start=-1;float velocity=0;};std::array<Pending,16*128> held{};
@@ -21,7 +21,7 @@ class MusicPanel final : public juce::Component,private juce::MidiInputCallback,
   void paint(juce::Graphics& g)override{p.draw(g,getLocalBounds());}
   void mouseDown(const juce::MouseEvent& e)override{p.click(e,getLocalBounds());}
  } canvas{*this};
- int bottomNote()const{return (octave.getSelectedId()-1)*12;}
+ int bottomNote()const{return juce::jlimit(0,92,(octave.getSelectedId()-1)*12);}
  bool automation()const{return mode.getSelectedId()>1;}
  std::vector<pulse::AutomationPoint>& points(){return mode.getSelectedId()==2?track.gainAutomation:track.panAutomation;}
  void message(juce::String s){status.setText(s,juce::dontSendNotification);}
@@ -70,14 +70,15 @@ class MusicPanel final : public juce::Component,private juce::MidiInputCallback,
   input=juce::MidiInput::openDevice(devices[id].identifier,this);if(!input){message("Could not open MIDI input.");return;}
   {const juce::ScopedLock lock(mutex);for(auto& h:held)h=Pending{};recorded.clear();began=juce::Time::getMillisecondCounterHiRes();recordBase=pageStart;capturing=true;}input->start();message("Recording note events from page start (no live monitoring).");
  }
- void timerCallback()override{record.setEnabled(!capturing);stop.setEnabled(capturing);apply.setEnabled(!capturing);clear.setEnabled(!capturing);prev.setEnabled(!capturing);next.setEnabled(!capturing);}
+ void importFile(){if(capturing)return;chooser=std::make_unique<juce::FileChooser>("Import standard MIDI file",juce::File{},"*.mid;*.midi");juce::Component::SafePointer<MusicPanel> safe(this);chooser->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe](const juce::FileChooser& f){if(!safe||f.getResult()==juce::File{}||safe->capturing)return;auto file=f.getResult();if(file.getSize()>16*1024*1024){safe->message("MIDI file exceeds 16 MB.");return;}auto stream=file.createInputStream();juce::MidiFile midi;if(!stream||!midi.readFrom(*stream)){safe->message("Invalid MIDI file.");return;}midi.convertTimestampTicksToSeconds();std::vector<pulse::MidiNote> notes;for(int t=0;t<midi.getNumTracks();++t){auto* seq=midi.getTrack(t);if(!seq)continue;for(int i=0;i<seq->getNumEvents();++i){auto* event=seq->getEventPointer(i);if(!event||!event->message.isNoteOn()||!event->noteOffObject)continue;double start=event->message.getTimeStamp(),end=event->noteOffObject->message.getTimeStamp();if(!std::isfinite(start)||!std::isfinite(end)||start<0||end<=start||end>172800)continue;Frame a=safe->pageStart+(Frame)std::llround(start*48000),b=safe->pageStart+(Frame)std::llround(end*48000);if(a<b&&b<=pulse::timelineLimit)notes.push_back({a,b-a,event->message.getNoteNumber(),event->message.getFloatVelocity()});}}safe->track.notes.insert(safe->track.notes.end(),notes.begin(),notes.end());safe->canvas.repaint();safe->message(juce::String((int)notes.size())+" notes imported; channels merged into selected instrument.");});}
+ void timerCallback()override{importMidi.setEnabled(!capturing);record.setEnabled(!capturing);stop.setEnabled(capturing);apply.setEnabled(!capturing);clear.setEnabled(!capturing);prev.setEnabled(!capturing);next.setEnabled(!capturing);}
 public:
  MusicPanel(pulse::TimelineTrack t,std::function<bool(const pulse::TimelineTrack&)> fn):track(std::move(t)),applyTrack(std::move(fn)){
-  for(auto* c:std::array<juce::Component*,15>{&instrument,&mode,&device,&octave,&length,&velocity,&grid,&apply,&clear,&record,&stop,&title,&status,&prev,&next})addAndMakeVisible(c);addAndMakeVisible(canvas);
+  for(auto* c:std::array<juce::Component*,16>{&instrument,&mode,&device,&octave,&length,&velocity,&grid,&apply,&clear,&record,&stop,&title,&status,&prev,&next,&importMidi})addAndMakeVisible(c);addAndMakeVisible(canvas);
   title.setText("PIANO ROLL / TRACK AUTOMATION",juce::dontSendNotification);PulseTheme::style(title,17,true);PulseTheme::style(status,12,false,PulseTheme::muted);
   int id=1;for(auto* s:{"Sine","Electric keys","Organ","Pluck"})instrument.addItem(s,id++);instrument.setSelectedId(track.instrument+1,juce::dontSendNotification);instrument.onChange=[this]{track.instrument=instrument.getSelectedId()-1;};
   mode.addItem("Piano roll",1);mode.addItem("Gain automation",2);mode.addItem("Pan automation",3);mode.setSelectedId(1,juce::dontSendNotification);mode.onChange=[this]{canvas.repaint();};
-  for(int i=0;i<=7;++i)octave.addItem("Pitch "+juce::String(i*12)+"–"+juce::String(i*12+35),i+1);octave.setSelectedId(5,juce::dontSendNotification);octave.onChange=[this]{canvas.repaint();};
+  for(int i=0;i<=8;++i){int base=std::min(92,i*12);octave.addItem("Pitch "+juce::String(base)+"–"+juce::String(base+35),i+1);}octave.setSelectedId(5,juce::dontSendNotification);octave.onChange=[this]{canvas.repaint();};
   devices=juce::MidiInput::getAvailableDevices();for(int i=0;i<devices.size();++i)device.addItem(devices[i].name,i+1);device.setTextWhenNothingSelected("MIDI input");if(!devices.isEmpty())device.setSelectedId(1,juce::dontSendNotification);
   auto setup=[](juce::Slider& s,double lo,double hi,double step,double value,const char* suffix){s.setSliderStyle(juce::Slider::LinearHorizontal);s.setRange(lo,hi,step);s.setValue(value);s.setTextValueSuffix(suffix);s.setTextBoxStyle(juce::Slider::TextBoxRight,false,75,22);};
   setup(length,.0625,4,.0625,.5," s note");setup(velocity,.05,1,.05,.8," vel");setup(grid,.0625,1,.0625,.125," s grid");
@@ -85,11 +86,11 @@ public:
   next.onClick=[this]{pageStart=std::min(pulse::timelineLimit-pageFrames,pageStart+pageFrames);canvas.repaint();message("Page starts at "+juce::String(pageStart/48000)+" s");};
   clear.onClick=[this]{if(automation())points().clear();else track.notes.clear();canvas.repaint();};
   apply.onClick=[this]{if(applyTrack&&applyTrack(track))message("Applied to arrangement. Play in Timeline.");else message("Stop audio before applying changes.");};
-  record.onClick=[this]{beginCapture();};stop.onClick=[this]{finishCapture();};
+  importMidi.onClick=[this]{importFile();};record.onClick=[this]{beginCapture();};stop.onClick=[this]{finishCapture();};
   message("Left-click add; right-click remove. Apply changes, then play. 8-second pages.");setSize(850,650);startTimerHz(5);
  }
- ~MusicPanel()override{stopTimer();finishCapture();}
+ ~MusicPanel()override{stopTimer();chooser.reset();finishCapture();}
  void resized()override{auto r=getLocalBounds().reduced(8);title.setBounds(r.removeFromTop(30));auto row=r.removeFromTop(32);int n=4;for(auto* b:{&mode,&instrument,&octave,&device})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));
   row=r.removeFromTop(30);n=3;for(auto* s:{&length,&velocity,&grid})s->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));
-  row=r.removeFromTop(32);n=6;for(auto* b:{&prev,&next,&record,&stop,&clear,&apply})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));status.setBounds(r.removeFromBottom(26));canvas.setBounds(r);}
+  row=r.removeFromTop(32);n=7;for(auto* b:{&prev,&next,&record,&stop,&importMidi,&clear,&apply})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));status.setBounds(r.removeFromBottom(26));canvas.setBounds(r);}
 };
