@@ -38,7 +38,7 @@ class DeviceMonitor final : private juce::AudioIODeviceType::Listener {
   preferred.useDefaultInputChannels=false;preferred.useDefaultOutputChannels=false;havePreferred=true;
  }
  void disarm(){
-  e.enabled=false;e.disarmAux();e.transport.stop();e.stopRecord();e.multitrack.stop();
+  e.enabled=false;e.disarmAux();e.transport.stop();e.stopRecord();e.multitrack.stop();e.trackRecorder.stop();
  }
  void reconnect(){
   lastAttempt=juce::Time::getMillisecondCounter();
