@@ -29,6 +29,21 @@ inline bool testOutputMixes(){
  engine.audioDeviceIOCallbackWithContext(inputs,2,wideOut,32,samples,context);
  if(!close(wide.getSample(14,samples-1),.1f)||!close(wide.getSample(15,samples-1),.2f)||!close(wide.getSample(30,samples-1),.025f)||!close(wide.getSample(31,samples-1),.05f)||!close(wide.getSample(0,samples-1),0.f))return pulse::testFailure(__FILE__,__LINE__);
  engine.auxPair[0]=7;engine.audioDeviceIOCallbackWithContext(inputs,2,wideOut,32,samples,context);
- return !engine.auxAvailable[0].load()&&close(wide.getSample(14,samples-1),.1f);
+ if(engine.auxAvailable[0].load()||!close(wide.getSample(14,samples-1),.1f))return pulse::testFailure(__FILE__,__LINE__);
+ // Dedicated broadcast channel faders must never move the house mix.
+ Engine dual;if(!dual.addChannel())return pulse::testFailure(__FILE__,__LINE__);
+ dual.playback.setSize(2,samples);for(auto& b:dual.buses)b.setSize(2,samples);
+ auto& d=dual.ch[0];d.source=0;d.rightSource=1;d.bus=3;d.gain=1;d.mute=false;d.broadcastGain=.5f;
+ dual.master=.5f;dual.enabled=true;dual.broadcastDirectEnabled=true;dual.auxArmed[0]=true;
+ dual.auxSend[3*auxMixCount]=.8f; // Direct mode must not double the legacy bus send.
+ juce::AudioBuffer<float> separated(defaultOutputChannels,samples);
+ float* separateOut[defaultOutputChannels];for(int c=0;c<defaultOutputChannels;++c)separateOut[c]=separated.getWritePointer(c);
+ auto settle=[&]{for(int k=0;k<32;++k)dual.audioDeviceIOCallbackWithContext(inputs,2,separateOut,defaultOutputChannels,samples,context);};
+ settle();if(!close(separated.getSample(0,samples-1),.1f)||!close(separated.getSample(2,samples-1),.025f))return pulse::testFailure(__FILE__,__LINE__);
+ d.gain=.2f;settle();if(!close(separated.getSample(0,samples-1),.02f)||!close(separated.getSample(2,samples-1),.025f))return pulse::testFailure(__FILE__,__LINE__);
+ d.broadcastGain=.2f;settle();if(!close(separated.getSample(0,samples-1),.02f)||!close(separated.getSample(2,samples-1),.01f))return pulse::testFailure(__FILE__,__LINE__);
+ d.mute=true;settle();if(!close(separated.getSample(0,samples-1),0.f)||!close(separated.getSample(2,samples-1),.01f))return pulse::testFailure(__FILE__,__LINE__);
+ d.broadcastMute=true;settle();if(!close(separated.getSample(2,samples-1),0.f))return pulse::testFailure(__FILE__,__LINE__);
+ dual.disarmAux();settle();return close(separated.getSample(2,samples-1),0.f);
 }
 }

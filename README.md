@@ -1,5 +1,37 @@
-# Pulse Studio Enterprise 0.25.0
+# Pulse Studio Enterprise 0.26.0
 Experimental native C++17 / JUCE 8.0.11 application. Not production-ready.
+
+## Independent house and broadcast mixes (0.26.0)
+**Broadcast** now offers a separately enabled channel-by-channel stereo feed on
+**AUX 1**, with its own broadcast level, mute, pan (recalled in projects), and
+automation lock. House channel faders, solos, DCAs and mutes do not change the
+broadcast feed's level. Both outputs share the channel's native tone and
+compressor DSP but the broadcast tap is before house faders and channel plugin
+inserts; it bypasses bus, send, and master effects. A dedicated broadcast
+sample-peak limiter operates independently of the house master limiter. AUX 2/3
+retain their post-bus behavior. The former AUX 1 post-bus sends are ignored
+while independent broadcast feed is enabled.
+
+Configure a *different* stereo hardware output pair for AUX 1 in Routing and
+arm it while LIVE is off. Enable the independent broadcast feed while stopped;
+then verify both physical outputs before opening the livestream. No AUX output
+is automatically armed on startup or on project load. Output availability
+requires at least four active physical output channels. An unmapped channel or
+a channel whose broadcast fader is at -60 dB contributes no broadcast signal.
+
+Broadcast automation has **Manual**, **Assisted** (monitor-only),
+**Autonomous** (bounded gain riding), and **Hybrid** (downward-only gain riding)
+modes, with Balanced, Praise, Worship and Sermon profiles, channel-role
+targets, peak/noise gating, per-channel lock, and a manual-override latch.
+Automation pauses on device/alignment/deadline faults. Four scene slots can
+save and recall broadcast fader/pan/mute/lock values and mode/profile without
+changing hardware routing or arming. The Broadcast panel records a rolling
+100-event in-memory change history. **Scene slots and history are not yet
+persisted to project files**, and there is no independent broadcast EQ/plugin
+chain, broadcast LUFS metering, true-peak limiter, or hardware-console fader
+control. The house LUFS display is specifically labeled as house-only.
+Automixing is deterministic and experimental, not a trained AI engineer or a
+substitute for supervised real-world soundchecks and broadcast compliance tests.
 
 ## Autonomous broadcast fader control (0.25.0)
 The top-level mixer now offers **Manual**, **Assisted**, **Autonomous**, and

@@ -15,7 +15,7 @@ public:
  OutputMixPage(Engine& engine,std::array<String,B>& n):e(engine),names(n){
   for(auto* c:std::array<Component*,6>{&title,&note,&bus,&disarm,&masterRoute,&masterHeading})addAndMakeVisible(c);
   title.setText("AUXILIARY OUTPUT MIXES",dontSendNotification);PulseTheme::style(title,14,true);
-  note.setText("Select distinct hardware pairs from the enabled device outputs. Aux uses post-bus sends and excludes playback/master FX. Route changes disarm auxiliary mixes.",dontSendNotification);PulseTheme::style(note,11,false,PulseTheme::muted);note.setJustificationType(Justification::topLeft);
+  note.setText("Select distinct hardware pairs. Aux 2/3 use post-bus sends; Aux 1 uses them only when the independent Broadcast feed is disabled. Route changes disarm auxiliaries.",dontSendNotification);PulseTheme::style(note,11,false,PulseTheme::muted);note.setJustificationType(Justification::topLeft);
   for(int b=0;b<B;++b)bus.addItem(names[b].isEmpty()?busName(b):names[b],b+1);bus.setSelectedId(1,dontSendNotification);bus.onChange=[this]{syncSends();};
   disarm.onClick=[this]{e.disarmAux();refresh();};masterHeading.setText("Master output",dontSendNotification);masterRoute.onChange=[this]{routeChanged(0,masterRoute);};
   for(int a=0;a<pulse::auxMixCount;++a){
