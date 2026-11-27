@@ -37,6 +37,7 @@ public:
   track.onChange=[this]{timerCallback();};group.onChange=[this]{if(auto* c=current())c->dca=group.getSelectedId()-2;};arm.setClickingTogglesState(true);arm.onClick=[this]{if(auto* c=current();c&&!recording())c->recordArm=arm.getToggleState();timerCallback();};armAll.onClick=[this]{if(!recording()){auto n=e.activeChannelNames(true).size();for(auto& c:e.ch)c.recordArm=c.source.load()>=0&&c.source.load()<n&&(c.rightSource.load()<0||c.rightSource.load()<n);}timerCallback();};clear.onClick=[this]{if(!recording())for(auto& c:e.ch)c.recordArm=false;timerCallback();};start.onClick=[this]{begin();};stop.onClick=[this]{e.trackRecorder.stop();timerCallback();};
   setSize(650,455);startTimerHz(5);
  }
- ~TrackControlPanel()override{stopTimer();}
+ void shutdown(){stopTimer();chooser.reset();}
+ ~TrackControlPanel()override{shutdown();}
  void resized()override{auto r=getLocalBounds().reduced(10);title.setBounds(r.removeFromTop(30));auto row=r.removeFromTop(32);track.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));group.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));arm.setBounds(row.reduced(2));row=r.removeFromTop(32);int n=4;for(auto* b:{&armAll,&clear,&start,&stop})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));status.setBounds(r.removeFromBottom(36));for(int i=0;i<Engine::dcaCount;++i){auto line=r.removeFromTop(36);labels[i].setBounds(line.removeFromLeft(64));mutes[i].setBounds(line.removeFromRight(74).reduced(2));levels[i].setBounds(line.reduced(2));}}
 };
