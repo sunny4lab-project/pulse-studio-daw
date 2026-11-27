@@ -210,7 +210,7 @@ public:
  bool load(File f){Array<File> files;files.add(f);return replaceStems(files,true);}
  bool addStem(File f){if(stemFiles.size()>=pulse::stemCount)return false;auto files=stemFiles;files.add(f);int index=files.size()-1;stemTrims[index]=1.f;stemMutes[index]=false;return replaceStems(files,false);}
  bool removeStem(){if(stemFiles.size()<2)return false;auto files=stemFiles;files.removeLast();return replaceStems(files,false);}
- bool recordInputs(const File& f){auto* d=devices.getCurrentAudioDevice();if(!d||!d->isPlaying())return false;return multitrack.start(f,d->getCurrentSampleRate(),d->getActiveInputChannels().countNumberOfSetBits(),d->getCurrentBufferSizeSamples());}
+ bool recordInputs(const File& f){if(trackRecorder.active())return false;auto* d=devices.getCurrentAudioDevice();if(!d||!d->isPlaying())return false;return multitrack.start(f,d->getCurrentSampleRate(),d->getActiveInputChannels().countNumberOfSetBits(),d->getCurrentBufferSizeSamples());}
  bool record(File f){stopRecord(); auto stream=f.createOutputStream(); if(!stream)return false; WavAudioFormat wav; auto* w=wav.createWriterFor(stream.get(),rate,2,24,{},0); if(!w)return false; stream.release(); auto next=std::make_unique<AudioFormatWriter::ThreadedWriter>(w,disk,65536); const ScopedLock lock(recordLock); writer=std::move(next); return true;}
  void stopRecord(){std::unique_ptr<AudioFormatWriter::ThreadedWriter> old; {const ScopedLock lock(recordLock); old=std::move(writer);} }
 };
