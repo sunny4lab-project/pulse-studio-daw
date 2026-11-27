@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(PulseStudio VERSION 0.21.0 LANGUAGES C CXX)
+project(PulseStudio VERSION 0.22.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 include(FetchContent)
 FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git GIT_TAG 8.0.11 GIT_SHALLOW TRUE)
