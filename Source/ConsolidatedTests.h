@@ -1,4 +1,5 @@
 #pragma once
+#include "TestDiagnostics.h"
 #include "AudioEngine.h"
 namespace pulse {
 // Synthetic stereo effect with known sample delay. No external plugin or hardware.
@@ -11,9 +12,9 @@ public:
  void releaseResources()override{}
  void processBlock(juce::AudioBuffer<float>& block,juce::MidiBuffer&)override{line.process(block.getWritePointer(0),block.getWritePointer(1),block.getNumSamples());}
  double getTailLengthSeconds()const override{return 0;}
- bool acceptsMidi()const override{return false;}
- bool producesMidi()const override{return false;}
- bool hasEditor()const override{return false;}
+ bool acceptsMidi()const override{return pulse::testFailure(__FILE__,__LINE__);}
+ bool producesMidi()const override{return pulse::testFailure(__FILE__,__LINE__);}
+ bool hasEditor()const override{return pulse::testFailure(__FILE__,__LINE__);}
  juce::AudioProcessorEditor* createEditor()override{return nullptr;}
  int getNumPrograms()override{return 1;}
  int getCurrentProgram()override{return 0;}
@@ -29,9 +30,9 @@ inline bool testConsolidated(){
  juce::KnownPluginList catalog;
  juce::PluginDescription a;a.name="Shell A";a.manufacturerName="Synthetic";a.pluginFormatName="VST3";a.fileOrIdentifier="test-shell.vst3";a.uniqueId=11;a.deprecatedUid=11;a.numInputChannels=a.numOutputChannels=2;
  auto b=a;b.name="Shell B";b.uniqueId=12;b.deprecatedUid=12;
- if(!catalog.addType(a)||!catalog.addType(b)||catalog.getNumTypes()!=2)return false;
- juce::KnownPluginList restored;restored.recreateFromXml(*catalog.createXml());if(restored.getNumTypes()!=2)return false;
- Engine e;if(!e.addChannels({0,1,2}))return false;
+ if(!catalog.addType(a)||!catalog.addType(b)||catalog.getNumTypes()!=2)return pulse::testFailure(__FILE__,__LINE__);
+ juce::KnownPluginList restored;restored.recreateFromXml(*catalog.createXml());if(restored.getNumTypes()!=2)return pulse::testFailure(__FILE__,__LINE__);
+ Engine e;if(!e.addChannels({0,1,2}))return pulse::testFailure(__FILE__,__LINE__);
  constexpr int block=256;
  e.playback.setSize(2,block);e.pluginBuffer.setSize(2,block);for(auto& bus:e.buses)bus.setSize(2,block);
  e.ch[0].bus=0;e.ch[1].bus=0;e.ch[2].bus=1;
@@ -40,7 +41,7 @@ inline bool testConsolidated(){
  e.channelInserts[0].slots[0].plugin=std::make_unique<TestDelayEffect>(12);
  e.busInserts[0].slots[0].plugin=std::make_unique<TestDelayEffect>(8);
  e.channelInserts[0].prepare(48000,block);e.busInserts[0].prepare(48000,block);
- if(!e.setCompensated(true))return false;
+ if(!e.setCompensated(true))return pulse::testFailure(__FILE__,__LINE__);
  juce::AudioBuffer<float> input(3,block),output(2,block);input.clear();
  const float* ins[]={input.getReadPointer(0),input.getReadPointer(1),input.getReadPointer(2)};
  float* outs[]={output.getWritePointer(0),output.getWritePointer(1)};
@@ -49,15 +50,15 @@ inline bool testConsolidated(){
  for(int i=0;i<32;++i)e.audioDeviceIOCallbackWithContext(ins,3,outs,2,block,{});
  for(int i=0;i<3;++i)input.setSample(i,0,.1f);
  e.audioDeviceIOCallbackWithContext(ins,3,outs,2,block,{});
- if(e.alignmentSamples.load()!=20||e.alignmentFault.load())return false;
+ if(e.alignmentSamples.load()!=20||e.alignmentFault.load())return pulse::testFailure(__FILE__,__LINE__);
  for(int k=0;k<2;++k)for(int i=0;i<block;++i){
   float target=i==20?.3f*std::sqrt(.5f):0.f;
-  if(std::abs(output.getSample(k,i)-target)>.0005f)return false;
+  if(std::abs(output.getSample(k,i)-target)>.0005f)return pulse::testFailure(__FILE__,__LINE__);
  }
  // A master effect in a newly added high slot must actually process the mix.
  e.masterInserts.visibleSlots=16;e.masterInserts.slots[15].plugin=std::make_unique<TestDelayEffect>(4);e.masterInserts.prepare(48000,block);
  e.audioDeviceIOCallbackWithContext(ins,3,outs,2,block,{});
- for(int k=0;k<2;++k)for(int i=0;i<block;++i){float target=i==24?.3f*std::sqrt(.5f):0.f;if(std::abs(output.getSample(k,i)-target)>.0005f)return false;}
+ for(int k=0;k<2;++k)for(int i=0;i<block;++i){float target=i==24?.3f*std::sqrt(.5f):0.f;if(std::abs(output.getSample(k,i)-target)>.0005f)return pulse::testFailure(__FILE__,__LINE__);}
  // Runtime excessive latency must fail closed rather than emit misaligned audio.
  e.channelInserts[0].slots[0].plugin->setLatencySamples(maxRackLatency+1);
  e.audioDeviceIOCallbackWithContext(ins,3,outs,2,block,{});

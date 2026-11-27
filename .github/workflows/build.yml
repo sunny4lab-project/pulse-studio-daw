@@ -32,8 +32,9 @@ jobs:
           Stop-Process -Id $p.Id -Force
           $asioTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-asio' -Wait -PassThru
           if ($asioTest.ExitCode -ne 0) { throw 'ASIO backend missing from Windows build' }
-          $stemTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-stems' -Wait -PassThru
-          if ($stemTest.ExitCode -ne 0) { throw 'Native audio, project recall, device policy, plugin library or alignment regression failed' }
+          $stemTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-stems' -WorkingDirectory $PWD.Path -Wait -PassThru
+          if (Test-Path 'PulseStudio-native-tests.log') { Get-Content 'PulseStudio-native-tests.log' }
+          if ($stemTest.ExitCode -ne 0) { throw "Native regression suite failed (exit $($stemTest.ExitCode)); see named checks above." }
           $preview = Start-Process -FilePath $exe.FullName -ArgumentList '--capture-ui' -WorkingDirectory $PWD.Path -Wait -PassThru
           if ($preview.ExitCode -ne 0) { throw 'UI snapshot failed' }
           foreach ($width in @(864,1360)) { foreach ($workspace in (0..14)) { $suffix = if ($workspace -eq 0) { "" } else { "-$workspace" }; if (!(Test-Path "PulseStudio-UI-$width$suffix.png")) { throw "Missing UI snapshot $width/$workspace" } } }
@@ -43,6 +44,12 @@ jobs:
           New-Item -ItemType Directory -Force installer-output | Out-Null
           & $iscc "/DAppExe=$($exe.FullName)" "/O$($PWD.Path)\installer-output" packaging/windows.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulseStudio-Native-Test-Report
+          path: PulseStudio-native-tests.log
+          if-no-files-found: warn
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
