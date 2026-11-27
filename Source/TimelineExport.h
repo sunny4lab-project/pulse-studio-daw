@@ -22,8 +22,10 @@ inline bool renderTimelineWav(TimelineSource& source,const juce::File& file,cons
 class TimelineExportTask final : public juce::ThreadWithProgressWindow {
  std::unique_ptr<TimelineSource> source;juce::File file;
 public:
- juce::String error;
+ juce::String error;bool completed=false,cancelled=false;
  TimelineExportTask(std::unique_ptr<TimelineSource> s,juce::File f):ThreadWithProgressWindow("Rendering arrangement WAV",true,true),source(std::move(s)),file(std::move(f)){}
+ ~TimelineExportTask()override{signalThreadShouldExit();stopThread(-1);}
+ void threadComplete(bool userPressedCancel)override{cancelled=userPressedCancel;completed=true;}
  void run()override{renderTimelineWav(*source,file,[this](double p){setProgress(p);return !threadShouldExit();},error);}
 };
 }
