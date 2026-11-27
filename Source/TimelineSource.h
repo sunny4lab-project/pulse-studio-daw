@@ -80,7 +80,7 @@ private:
    double ratio=r.sampleRate/timelineRate*c.playbackRate;float g=c.gain;
    for(Frame p=begin;p<end;){
     int n=(int)std::min<Frame>(512,end-p);
-    double first=(double)(c.offset+p-c.start)*ratio;Frame base=(Frame)std::floor(first);
+    double first=((double)c.offset+(double)(p-c.start)*c.playbackRate)*r.sampleRate/timelineRate;Frame base=(Frame)std::floor(first);
     int need=(int)std::floor(first-base+(n-1)*ratio)+2;
     scratch.clear();int available=(int)std::min<Frame>(need,std::max<Frame>(0,r.lengthInSamples-base));
     if(available<=0||!r.read(&scratch,0,available,base,true,true)){readError=true;p+=n;continue;}

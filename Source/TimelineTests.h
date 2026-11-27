@@ -19,6 +19,7 @@ inline bool testTimeline(){
  AudioBuffer<float> data(2,96);AudioSourceChannelInfo info(&data,0,96);source->getNextAudioBlock(info);
  auto close=[](float a,float b){return std::abs(a-b)<.0001f;};
  if(!close(data.getSample(0,0),0)||!close(data.getSample(0,16),0)||!close(data.getSample(0,20),.1f)||!close(data.getSample(0,40),.3f)||!close(data.getSample(1,40),.5f)||!close(data.getSample(0,90),.1f))return false;
+ auto faster=model;faster.tracks.resize(1);auto& fc=faster.tracks[0].clips[0];fc.start=0;fc.offset=80;fc.length=24;fc.playbackRate=2;fc.fadeIn=fc.fadeOut=0;auto fast=TimelineSource::create(e.formats,faster,error);if(!fast)return false;fast->getNextAudioBlock(info);if(fast->failed()||!close(data.getSample(0,0),.2f)||!close(data.getSample(0,23),.2f)||!close(data.getSample(0,24),0))return false;
  if(!model.split(0,0,48)||model.tracks[0].clips.size()!=2||model.tracks[0].clips[1].offset!=40||model.tracks[0].clips[1].start!=48)return false;
  auto split=TimelineSource::create(e.formats,model,error);if(!split)return false;split->getNextAudioBlock(info);if(!close(data.getSample(0,48),.3f))return false;
  model.tracks[1].solo=true;auto solo=TimelineSource::create(e.formats,model,error);if(!solo)return false;solo->getNextAudioBlock(info);if(!close(data.getSample(0,24),0)||!close(data.getSample(1,40),.3f))return false;

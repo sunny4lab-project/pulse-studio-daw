@@ -2,6 +2,7 @@
 #include "AudioEngine.h"
 #include "ProjectRecovery.h"
 #include "ProjectMedia.h"
+#include "InstrumentBounce.h"
 namespace pulse {
 inline bool testProductionUpgrade(){
  using namespace juce;
@@ -19,7 +20,7 @@ inline bool testProductionUpgrade(){
  if(e.setTimeline(session,0).isNotEmpty()||e.arrangementMask.load()!=(1u<<9))return false;
  XmlElement root("PulseProject");root.setAttribute("version",8);ProjectMedia::save(e,root);ProjectMedia media;if(media.stage(e,root).isNotEmpty())return false;media.apply(e);if(e.arrangementMask.load()!=(1u<<9))return false;
  auto dir=File::getSpecialLocation(File::tempDirectory).getNonexistentChildFile("pulse-recovery-test","");if(!dir.createDirectory().wasOk())return false;
- struct Cleanup{File f;~Cleanup(){f.deleteRecursively();}} cleanup{dir};auto f=dir.getChildFile("session.pulse");
+ struct Cleanup{File f;~Cleanup(){f.deleteRecursively();}} cleanup{dir};if(renderInstrumentRequest(dir.getChildFile("missing.xml")).isEmpty())return false;auto f=dir.getChildFile("session.pulse");
  if(writeProjectSafely(root,f,true).isNotEmpty())return false;root.setAttribute("version",9);if(writeProjectSafely(root,f,true).isNotEmpty())return false;
  auto previous=XmlDocument::parse(f.getSiblingFile("session.pulse.bak"));auto current=XmlDocument::parse(f);return previous&&current&&previous->getIntAttribute("version")==8&&current->getIntAttribute("version")==9;
 }
