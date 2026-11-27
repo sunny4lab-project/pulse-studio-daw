@@ -1,5 +1,30 @@
-# Pulse Studio Enterprise 0.24.1
+# Pulse Studio Enterprise 0.25.0
 Experimental native C++17 / JUCE 8.0.11 application. Not production-ready.
+
+## Autonomous broadcast fader control (0.25.0)
+The top-level mixer now offers **Manual**, **Assisted**, **Autonomous**, and
+**Hybrid** modes. In AI Engineer, select a **Balanced**, **Praise**, **Worship**
+or **Sermon** profile. All four profiles are lightweight, deterministic gain
+policies, not trained AI or automatic recognition of music genres. Assign each
+channel's role in Mixer Details (lead vocal, speech, background vocal, drums,
+bass or keys/guitar) for role-sensitive targets. When a live speech channel is
+active, music and background vocal targets ease down by 3 dB and recover with
+a short hold; this does not act as a hard gate or full speech detector.
+
+Autonomous mode adjusts eligible channel faders continuously with a ±0.4 dB
+deadband, changes of at most 1.8 dB/second down and 0.6 dB/second up, and a
+calibrated anchor range of -6/+3 dB. Hybrid mode only makes reductions;
+Assisted mode only suggests levels until Apply is clicked. Channel Lock prevents
+automatic changes. Dragging a fader in Autonomous or Hybrid latches a manual
+override: unlock that strip to resume automatic control. Automation pauses when
+live monitoring is disabled, a channel is muted, solo is active, the master is
+near peak overload, the device reports a fault, or the latest callback uses
+90% or more of its buffer deadline. Silent inputs do not trigger gain boosts.
+
+This affects Pulse Studio's own mixer, including its broadcast routing; it
+does not remotely move Behringer WING FOH faders. It has not been validated
+for unattended services or commercial broadcast loudness compliance. Begin
+in Assisted mode, with headphones and conservative levels.
 
 ## Live performance efficiency and monitoring (0.24.1)
 Mapped inputs retain their raw peak meter while muted, solo-excluded, master live-off,

@@ -3,6 +3,7 @@
 #include "MasterDSP.h"
 #include "DelayAlignment.h"
 #include "CallbackDeadline.h"
+#include "AutoMixControl.h"
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
@@ -44,4 +45,20 @@ static void testCallbackDeadline(){
  meter.record(1e6,480,48000);assert(meter.peakPermille==100000&&meter.missedDeadlines==2);
  meter.reset();assert(meter.latestPermille==0&&meter.peakPermille==0&&meter.missedDeadlines==0);
 }
-int main(){testTone();testMaster();testDelayPlan();testCallbackDeadline();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}
+static void testAutoMixControl(){
+ using pulse::AutoMixControl;
+ assert(AutoMixControl::targetDb(3,4,false)==-17.f);
+ assert(AutoMixControl::targetDb(7,2,true)==AutoMixControl::targetDb(7,2,false)-3.f);
+ assert(AutoMixControl::targetDb(2,2,true)==AutoMixControl::targetDb(2,2,false));
+ // No signal must never cause gain to rise; all proposals stay near the human anchor.
+ assert(AutoMixControl::propose(.5f,0.f,3,4,false)==.5f);
+ float down=AutoMixControl::propose(.5f,.9f,7,4,true);
+ float up=AutoMixControl::propose(.5f,.0033f,3,4,false);
+ assert(down>=.5f*AutoMixControl::gainForDb(-6.f)-.00001f&&down<=.5f);
+ assert(up<=.5f*AutoMixControl::gainForDb(3.f)+.00001f);
+ assert(AutoMixControl::ride(.5f,1.f,true)==.5f);
+ assert(AutoMixControl::ride(.5f,.1f,false)<.5f);
+ assert(AutoMixControl::ride(.5f,1.f,false)>.5f);
+ assert(AutoMixControl::ride(.5f,.5f,false)==.5f);
+}
+int main(){testTone();testMaster();testDelayPlan();testCallbackDeadline();testAutoMixControl();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}
