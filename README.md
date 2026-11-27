@@ -1,5 +1,17 @@
-# Pulse Studio Enterprise 0.26.0
+# Pulse Studio Enterprise 0.27.0
 Experimental native C++17 / JUCE 8.0.11 application. Not production-ready.
+
+## Per-channel color coding (0.27.0)
+Mixer channel headers and the Broadcast workspace use one shared channel color.
+Right-click a channel **name** in Mixer, or its row in Broadcast, to choose
+**Automatic by channel role** or one of twelve custom colors. Automatic mode
+follows the selected role (speech gold, lead vocal coral, background vocal
+purple, drums crimson, bass green, keys/guitar blue); General channels are
+colored by bus. Manual colors stay fixed when the role or bus changes. These
+settings are saved per channel in project XML and restored on load; older
+projects default to Automatic. Audio meters keep their green/amber/red level
+indications so channel identity never hides clipping warnings. Channel colors
+are display-only and do not affect engine routing or DSP CPU use.
 
 ## Independent house and broadcast mixes (0.26.0)
 **Broadcast** now offers a separately enabled channel-by-channel stereo feed on

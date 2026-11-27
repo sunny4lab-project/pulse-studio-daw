@@ -1,5 +1,6 @@
 #pragma once
 #include "../AudioEngine.h"
+#include "../ChannelColourUI.h"
 #include "../AutoMixControl.h"
 #include "../UI/EnterpriseCard.h"
 #include "../UI/MeterWidget.h"
@@ -15,7 +16,7 @@ class BroadcastPage : public juce::Component {
   float anchor=0,envelope=0;bool manualHold=false;
   ChannelRow(Engine& e,juce::ComboBox& m,int i,std::function<void(const juce::String&)> callback):engine(e),mode(m),index(i),onChange(std::move(callback)){
    for(auto* c:std::array<juce::Component*,5>{&title,&peak,&level,&mute,&lock})addAndMakeVisible(c);
-   title.setText("CH "+juce::String(i+1),juce::dontSendNotification);title.setFont(juce::Font(12.f,juce::Font::bold));peak.setFont(juce::Font(10.f));
+   title.setText("CH "+juce::String(i+1),juce::dontSendNotification);title.setFont(juce::Font(12.f,juce::Font::bold));title.addMouseListener(this,false);peak.setFont(juce::Font(10.f));
    level.setSliderStyle(juce::Slider::LinearHorizontal);level.setRange(-60,3.52,.1);level.setTextValueSuffix(" dB");
    level.setTextBoxStyle(juce::Slider::TextBoxRight,false,57,20);
    anchor=e.ch[i].broadcastGain.load();level.setValue(juce::Decibels::gainToDecibels(anchor,-60.f),juce::dontSendNotification);
@@ -29,7 +30,9 @@ class BroadcastPage : public juce::Component {
    lock.onClick=[this]{engine.ch[index].broadcastLock=lock.getToggleState();if(!lock.getToggleState())manualHold=false;};
   }
   void setAutomatic(float value){engine.ch[index].broadcastGain=value;level.setValue(juce::Decibels::gainToDecibels(value,-60.f),juce::dontSendNotification);}
-  void refresh(){auto& c=engine.ch[index];if(!level.isMouseButtonDown())level.setValue(juce::Decibels::gainToDecibels(c.broadcastGain.load(),-60.f),juce::dontSendNotification);
+  void mouseDown(const juce::MouseEvent& ev)override{if(ev.mods.isPopupMenu())openChannelColourMenu(*this,engine.ch[index]);}
+  void paint(juce::Graphics& g)override{g.setColour(getChannelColour(engine.ch[index]));g.fillRoundedRectangle(juce::Rectangle<float>(1.f,5.f,4.f,(float)getHeight()-10.f),2.f);}
+  void refresh(){auto& c=engine.ch[index];title.setColour(juce::Label::textColourId,getChannelColour(c));if(!level.isMouseButtonDown())level.setValue(juce::Decibels::gainToDecibels(c.broadcastGain.load(),-60.f),juce::dontSendNotification);
    mute.setToggleState(c.broadcastMute.load(),juce::dontSendNotification);lock.setToggleState(c.broadcastLock.load(),juce::dontSendNotification);
    peak.setText(manualHold?"Manual hold":juce::String(juce::Decibels::gainToDecibels(c.broadcastPeak.load(),-100.f),0)+" dBFS",juce::dontSendNotification);}
   void resized()override{auto r=getLocalBounds().reduced(2);title.setBounds(r.removeFromLeft(55));peak.setBounds(r.removeFromRight(78));lock.setBounds(r.removeFromRight(52).reduced(1));mute.setBounds(r.removeFromRight(52).reduced(1));level.setBounds(r);}

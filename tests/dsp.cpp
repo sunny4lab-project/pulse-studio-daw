@@ -4,6 +4,7 @@
 #include "DelayAlignment.h"
 #include "CallbackDeadline.h"
 #include "AutoMixControl.h"
+#include "ChannelColours.h"
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
@@ -61,4 +62,15 @@ static void testAutoMixControl(){
  assert(AutoMixControl::ride(.5f,1.f,false)>.5f);
  assert(AutoMixControl::ride(.5f,.5f,false)==.5f);
 }
-int main(){testTone();testMaster();testDelayPlan();testCallbackDeadline();testAutoMixControl();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}
+static void testChannelColours(){
+ assert(pulse::channelPaletteSize==12);
+ for(auto colour:pulse::channelPalette)assert(pulse::validChannelColour(colour));
+ assert(pulse::defaultChannelColour(3)==pulse::channelPalette[0]);
+ assert(pulse::defaultChannelColour(2)==pulse::channelPalette[1]);
+ assert(pulse::defaultChannelColour(4)==pulse::channelPalette[2]);
+ assert(pulse::defaultChannelColour(5)==pulse::channelPalette[6]);
+ assert(pulse::defaultChannelColour(1,0)==pulse::channelPalette[6]);
+ assert(pulse::defaultChannelColour(1,1)==pulse::channelPalette[7]);
+ assert(!pulse::validChannelColour(0x0055cb92u));
+}
+int main(){testTone();testMaster();testDelayPlan();testCallbackDeadline();testAutoMixControl();testChannelColours();pulse::StripDSP d; float y=0; for(int i=0;i<48000;i++)y=d.process(0.5f,1,0,1,1,.01f,.001f,.02f); assert(std::abs(y-.5f)<.001f); for(int i=0;i<48000;i++)y=d.process(.5f,1,pulse::coefficient(80,48000),1,1,.01f,.001f,.02f); assert(std::abs(y)<.001f); d.reset(); for(int i=0;i<48000;i++)y=d.process(.8f,1,0,.2f,4,.01f,.001f,.02f); assert(y<.4f && y>.2f); std::cout<<"DSP tests passed\n";}
