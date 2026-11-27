@@ -1,6 +1,7 @@
 #pragma once
 #include "../AudioEngine.h"
 #include "../TimelineExport.h"
+#include "MusicPanel.h"
 #include <cstdlib>
 #include "../UI/EnterpriseTheme.h"
 class TimelineEditor final : public juce::Component,private juce::Timer {
@@ -10,7 +11,7 @@ class TimelineEditor final : public juce::Component,private juce::Timer {
  juce::AudioThumbnailCache cache{64};
  struct Wave {juce::File file;std::unique_ptr<juce::AudioThumbnail> thumbnail;};
  std::vector<Wave> waves;
- juce::TextButton addTrack{"Add track"},import{"Import files"},split{"Split at cursor"},duplicate{"Duplicate"},erase{"Delete clip"},eraseTrack{"Delete track"},undo{"Undo"},redo{"Redo"},play{"Play"},stop{"Stop"},exportWav{"Export WAV"},apply{"Apply settings"};
+ juce::Component::SafePointer<juce::DialogWindow> musicDialog;juce::TextButton music{"MIDI / Automation"},addTrack{"Add track"},import{"Import files"},split{"Split at cursor"},duplicate{"Duplicate"},erase{"Delete clip"},eraseTrack{"Delete track"},undo{"Undo"},redo{"Redo"},play{"Play"},stop{"Stop"},exportWav{"Export WAV"},apply{"Apply settings"};
  juce::Label status,trackLabel,clipLabel;juce::TextEditor name,start,offset,length,fadeIn,fadeOut,gain,pan,clipGain;
  std::array<juce::Label,9> fieldLabels;juce::ToggleButton mute{"Mute track"},solo{"Solo track"};
  juce::Slider zoom;juce::Viewport viewport;std::unique_ptr<juce::FileChooser> chooser;std::unique_ptr<pulse::TimelineExportTask> exportTask;
@@ -106,19 +107,19 @@ class TimelineEditor final : public juce::Component,private juce::Timer {
   int first=std::max(0,(int)((visible.getX()-labelWidth)/(pixelsPerSecond*step)));
   for(int i=first;;++i){int x=labelWidth+(int)(i*step*pixelsPerSecond);if(x>visible.getRight()+100)break;g.setColour(PulseTheme::border);g.drawVerticalLine(x,0,(float)area.getHeight());g.setColour(PulseTheme::muted);g.setFont(11.f);g.drawText(juce::String(i*step,0)+"s",x+3,0,65,rulerHeight,juce::Justification::centredLeft);}
   for(int t=0;t<(int)model.tracks.size();++t){int y=rulerHeight+t*rowHeight;if(y+rowHeight<visible.getY()||y>visible.getBottom())continue;auto& track=model.tracks[t];
-   g.setColour(t==selectedTrack?PulseTheme::active:PulseTheme::panel);g.fillRect(0,y,labelWidth-1,rowHeight-1);g.setColour(PulseTheme::text);g.setFont(13.f);g.drawFittedText(track.name,8,y+5,labelWidth-16,25,juce::Justification::centredLeft,1);g.setColour(PulseTheme::muted);g.setFont(11.f);g.drawText((track.mute?juce::String("MUTED "):juce::String())+(track.solo?"SOLO ":"")+juce::String((int)track.clips.size())+" clips",8,y+33,labelWidth-16,20,juce::Justification::centredLeft);
+   g.setColour(t==selectedTrack?PulseTheme::active:PulseTheme::panel);g.fillRect(0,y,labelWidth-1,rowHeight-1);g.setColour(PulseTheme::text);g.setFont(13.f);g.drawFittedText(track.name,8,y+5,labelWidth-16,25,juce::Justification::centredLeft,1);g.setColour(PulseTheme::muted);g.setFont(11.f);g.drawText((track.mute?juce::String("MUTED "):juce::String())+(track.solo?"SOLO ":"")+juce::String((int)track.clips.size())+" clips / "+juce::String((int)track.notes.size())+" notes",8,y+33,labelWidth-16,20,juce::Justification::centredLeft);
    for(int i=0;i<(int)track.clips.size();++i){auto& c=track.clips[i];auto rect=juce::Rectangle<int>(xAt(c.start),y+3,std::max(3,xAt(c.start+c.length)-xAt(c.start)),rowHeight-6);if(!rect.intersects(visible))continue;
     g.setColour(t==selectedTrack&&i==selectedClip?juce::Colour(0xff277f91):juce::Colour(0xff24465d));g.fillRoundedRectangle(rect.toFloat(),4);g.setColour(PulseTheme::text);g.drawFittedText(c.file.getFileName(),rect.reduced(4).removeFromTop(18),juce::Justification::centredLeft,1);
     auto wave=std::find_if(waves.begin(),waves.end(),[&](auto& w){return w.file==c.file;});if(wave!=waves.end()&&wave->thumbnail){auto full=rect.reduced(3).withTrimmedTop(18);auto shown=full.getIntersection(visible);if(!shown.isEmpty()&&full.getWidth()>0){double a=(double)(shown.getX()-full.getX())/full.getWidth(),b=(double)(shown.getRight()-full.getX())/full.getWidth();g.setColour(juce::Colour(0xff9bd5db));wave->thumbnail->drawChannels(g,shown,(c.offset+a*c.length)/pulse::timelineRate,(c.offset+b*c.length)/pulse::timelineRate,1.f);}}
     g.setColour(PulseTheme::cyan);if(c.fadeIn>0)g.drawLine((float)rect.getX(),(float)rect.getBottom(),(float)xAt(c.start+c.fadeIn),(float)rect.getY(),1.2f);if(c.fadeOut>0)g.drawLine((float)xAt(c.start+c.length-c.fadeOut),(float)rect.getY(),(float)rect.getRight(),(float)rect.getBottom(),1.2f);
-   }g.setColour(PulseTheme::border);g.drawHorizontalLine(y+rowHeight-1,0,(float)area.getWidth());
+   }for(auto& note:track.notes){auto rect=juce::Rectangle<int>(xAt(note.start),y+5+(127-note.pitch)*(rowHeight-14)/128,std::max(2,xAt(note.start+note.length)-xAt(note.start)),4);if(rect.intersects(visible)){g.setColour(juce::Colour(0xffbfa0ef));g.fillRect(rect);}}g.setColour(PulseTheme::border);g.drawHorizontalLine(y+rowHeight-1,0,(float)area.getWidth());
   }
   g.setColour(PulseTheme::cyan);g.drawVerticalLine(xAt((Frame)(e.transport.getCurrentPosition()*pulse::timelineRate)),0,(float)area.getHeight());
  }
- void timerCallback()override{if(!isShowing())return;if(exportTask&&exportTask->completed){message(exportTask->cancelled?juce::String("Export cancelled."):exportTask->error.isEmpty()?juce::String("Arrangement exported (pre-master)."):exportTask->error);exportTask.reset();}bool idle=e.canEditInserts()&&!exportTask;for(auto* b:{&addTrack,&import,&split,&duplicate,&erase,&eraseTrack,&undo,&redo,&apply,&exportWav})b->setEnabled(idle);split.setEnabled(idle&&hasClip());duplicate.setEnabled(idle&&hasClip());erase.setEnabled(idle&&hasClip());eraseTrack.setEnabled(idle&&hasTrack());apply.setEnabled(idle&&hasTrack());undo.setEnabled(idle&&!undoStack.empty());redo.setEnabled(idle&&!redoStack.empty());exportWav.setEnabled(idle&&model.length()>0);canvas.repaint();}
+ void timerCallback()override{if(!isShowing())return;if(exportTask&&exportTask->completed){message(exportTask->cancelled?juce::String("Export cancelled."):exportTask->error.isEmpty()?juce::String("Arrangement exported (pre-master)."):exportTask->error);exportTask.reset();}bool idle=e.canEditInserts()&&!exportTask&&musicDialog==nullptr;music.setEnabled(idle&&hasTrack());for(auto* b:{&addTrack,&import,&split,&duplicate,&erase,&eraseTrack,&undo,&redo,&apply,&exportWav})b->setEnabled(idle);split.setEnabled(idle&&hasClip());duplicate.setEnabled(idle&&hasClip());erase.setEnabled(idle&&hasClip());eraseTrack.setEnabled(idle&&hasTrack());apply.setEnabled(idle&&hasTrack());undo.setEnabled(idle&&!undoStack.empty());redo.setEnabled(idle&&!redoStack.empty());exportWav.setEnabled(idle&&model.length()>0);canvas.repaint();}
 public:
  explicit TimelineEditor(Engine& engine):e(engine),model(e.timelineSession()){
-  for(auto* b:{&addTrack,&import,&split,&duplicate,&erase,&eraseTrack,&undo,&redo,&play,&stop,&exportWav,&apply})addAndMakeVisible(*b);
+  for(auto* b:{&addTrack,&import,&split,&duplicate,&erase,&eraseTrack,&undo,&redo,&play,&stop,&exportWav,&apply,&music})addAndMakeVisible(*b);
   for(auto* c:std::array<juce::Component*,6>{&status,&trackLabel,&clipLabel,&zoom,&mute,&solo})addAndMakeVisible(c);
   juce::TextEditor* fields[]={&name,&gain,&pan,&start,&offset,&length,&fadeIn,&fadeOut,&clipGain};const char* labels[]={"Track name","Gain (linear)","Pan (-1..1)","Start (s)","Source in (s)","Length (s)","Fade in (s)","Fade out (s)","Clip gain"};
   for(int i=0;i<9;++i){addAndMakeVisible(*fields[i]);fieldLabels[i].setText(labels[i],juce::dontSendNotification);addAndMakeVisible(fieldLabels[i]);}
@@ -131,13 +132,14 @@ public:
   eraseTrack.onClick=[this]{if(!hasTrack())return;auto next=model;next.tracks.erase(next.tracks.begin()+selectedTrack);commit(std::move(next));};
   undo.onClick=[this]{history(true);};redo.onClick=[this]{history(false);};apply.onClick=[this]{applyFields();};
   play.onClick=[this]{auto* d=e.devices.getCurrentAudioDevice();if(!d||!d->isPlaying()){message("Connect an audio device for playback; offline export does not need hardware.");return;}if(!e.timeline){if(!commit(model,false))return;}e.transport.start();};stop.onClick=[this]{e.transport.stop();};
+  music.onClick=[this]{if(!hasTrack()||!e.canEditInserts()||musicDialog!=nullptr)return;int index=selectedTrack;juce::Component::SafePointer<TimelineEditor> safe(this);juce::DialogWindow::LaunchOptions o;o.content.setOwned(new MusicPanel(model.tracks[index],[safe,index](const pulse::TimelineTrack& t){if(!safe||index<0||index>=(int)safe->model.tracks.size())return false;auto next=safe->model;next.tracks[index]=t;return safe->commit(std::move(next));}));o.dialogTitle="MIDI and automation";o.dialogBackgroundColour=PulseTheme::panel;o.resizable=true;musicDialog=o.launchAsync();};
   exportWav.onClick=[this]{exportFile();};setSize(1050,650);refresh();message("Select clips; drag to move, edit fields and Apply. Multiple-file import creates aligned tracks.");startTimerHz(10);
  }
- void shutdown(){stopTimer();chooser.reset();exportTask.reset();}
+ void shutdown(){stopTimer();chooser.reset();exportTask.reset();if(musicDialog!=nullptr){musicDialog->exitModalState(0);musicDialog=nullptr;}}
  ~TimelineEditor()override{shutdown();viewport.setViewedComponent(nullptr,false);}
  void resized()override{
   auto r=getLocalBounds().reduced(8);auto row=r.removeFromTop(32);int n=7;for(auto* b:{&addTrack,&import,&split,&duplicate,&erase,&eraseTrack,&exportWav})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));
-  row=r.removeFromTop(30);for(auto* b:{&undo,&redo,&play,&stop})b->setBounds(row.removeFromLeft(82).reduced(2));zoom.setBounds(row.removeFromRight(190));status.setBounds(r.removeFromBottom(28));auto inspector=r.removeFromRight(std::min(260,r.getWidth()/3));trackLabel.setBounds(inspector.removeFromTop(25));juce::TextEditor* fields[]={&name,&gain,&pan,&start,&offset,&length,&fadeIn,&fadeOut,&clipGain};
+  row=r.removeFromTop(30);for(auto* b:{&undo,&redo,&play,&stop,&music})b->setBounds(row.removeFromLeft(b==&music?140:65).reduced(2));zoom.setBounds(row.removeFromRight(190));status.setBounds(r.removeFromBottom(28));auto inspector=r.removeFromRight(std::min(260,r.getWidth()/3));trackLabel.setBounds(inspector.removeFromTop(25));juce::TextEditor* fields[]={&name,&gain,&pan,&start,&offset,&length,&fadeIn,&fadeOut,&clipGain};
   for(int i=0;i<9;++i){if(i==3){auto toggles=inspector.removeFromTop(26);mute.setBounds(toggles.removeFromLeft(toggles.getWidth()/2));solo.setBounds(toggles);clipLabel.setBounds(inspector.removeFromTop(26));}auto line=inspector.removeFromTop(29);fieldLabels[i].setBounds(line.removeFromLeft(100));fields[i]->setBounds(line.reduced(2));}apply.setBounds(inspector.removeFromTop(30).reduced(2));viewport.setBounds(r.reduced(2));resizeCanvas();
  }
 };
