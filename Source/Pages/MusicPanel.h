@@ -4,9 +4,9 @@
 #include <array>
 class MusicPanel final : public juce::Component,private juce::MidiInputCallback,private juce::Timer {
  using Frame=pulse::Frame;
- pulse::TimelineTrack track;std::function<bool(const pulse::TimelineTrack&)> applyTrack;
+ pulse::TimelineTrack track;std::function<double()> cursor;std::function<bool(const pulse::TimelineTrack&)> applyTrack;
  juce::ComboBox instrument,mode,device,octave;
- juce::Slider length,velocity,grid;
+ juce::Slider length,velocity,grid;juce::ToggleButton fromCursor{"From playhead"};
  juce::TextButton apply{"Apply to track"},clear{"Clear lane"},record{"Record MIDI"},stop{"Stop MIDI"},importMidi{"Import MIDI"};std::unique_ptr<juce::FileChooser> chooser;
  juce::Label title,status;juce::Array<juce::MidiDeviceInfo> devices;
  std::unique_ptr<juce::MidiInput> input;juce::CriticalSection mutex;
@@ -68,13 +68,13 @@ class MusicPanel final : public juce::Component,private juce::MidiInputCallback,
  void beginCapture(){
   if(capturing)return;int id=device.getSelectedId()-1;if(!juce::isPositiveAndBelow(id,devices.size())){message("Select a MIDI input.");return;}
   input=juce::MidiInput::openDevice(devices[id].identifier,this);if(!input){message("Could not open MIDI input.");return;}
-  {const juce::ScopedLock lock(mutex);for(auto& h:held)h=Pending{};recorded.clear();began=juce::Time::getMillisecondCounterHiRes();recordBase=pageStart;capturing=true;}input->start();message("Recording note events from page start (no live monitoring).");
+  {const juce::ScopedLock lock(mutex);for(auto& h:held)h=Pending{};recorded.clear();began=juce::Time::getMillisecondCounterHiRes();recordBase=fromCursor.getToggleState()&&cursor?juce::jlimit((Frame)0,pulse::timelineLimit-1,(Frame)std::llround(cursor()*48000)):pageStart;capturing=true;}input->start();message("Recording from "+juce::String((double)recordBase/48000,2)+" s (elapsed time; no live monitoring).");
  }
  void importFile(){if(capturing)return;chooser=std::make_unique<juce::FileChooser>("Import standard MIDI file",juce::File{},"*.mid;*.midi");juce::Component::SafePointer<MusicPanel> safe(this);chooser->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe](const juce::FileChooser& f){if(!safe||f.getResult()==juce::File{}||safe->capturing)return;auto file=f.getResult();if(file.getSize()>16*1024*1024){safe->message("MIDI file exceeds 16 MB.");return;}auto stream=file.createInputStream();juce::MidiFile midi;if(!stream||!midi.readFrom(*stream)){safe->message("Invalid MIDI file.");return;}midi.convertTimestampTicksToSeconds();std::vector<pulse::MidiNote> notes;for(int t=0;t<midi.getNumTracks();++t){auto* seq=midi.getTrack(t);if(!seq)continue;for(int i=0;i<seq->getNumEvents();++i){auto* event=seq->getEventPointer(i);if(!event||!event->message.isNoteOn()||!event->noteOffObject)continue;double start=event->message.getTimeStamp(),end=event->noteOffObject->message.getTimeStamp();if(!std::isfinite(start)||!std::isfinite(end)||start<0||end<=start||end>172800)continue;Frame a=safe->pageStart+(Frame)std::llround(start*48000),b=safe->pageStart+(Frame)std::llround(end*48000);if(a<b&&b<=pulse::timelineLimit)notes.push_back({a,b-a,event->message.getNoteNumber(),event->message.getFloatVelocity()});}}safe->track.notes.insert(safe->track.notes.end(),notes.begin(),notes.end());safe->canvas.repaint();safe->message(juce::String((int)notes.size())+" notes imported; channels merged into selected instrument.");});}
  void timerCallback()override{importMidi.setEnabled(!capturing);record.setEnabled(!capturing);stop.setEnabled(capturing);apply.setEnabled(!capturing);clear.setEnabled(!capturing);prev.setEnabled(!capturing);next.setEnabled(!capturing);}
 public:
- MusicPanel(pulse::TimelineTrack t,std::function<bool(const pulse::TimelineTrack&)> fn):track(std::move(t)),applyTrack(std::move(fn)){
-  for(auto* c:std::array<juce::Component*,16>{&instrument,&mode,&device,&octave,&length,&velocity,&grid,&apply,&clear,&record,&stop,&title,&status,&prev,&next,&importMidi})addAndMakeVisible(c);addAndMakeVisible(canvas);
+ MusicPanel(pulse::TimelineTrack t,std::function<bool(const pulse::TimelineTrack&)> fn,std::function<double()> position={}):track(std::move(t)),cursor(std::move(position)),applyTrack(std::move(fn)){
+  for(auto* c:std::array<juce::Component*,17>{&instrument,&mode,&device,&octave,&length,&velocity,&grid,&apply,&clear,&record,&stop,&title,&status,&prev,&next,&importMidi,&fromCursor})addAndMakeVisible(c);addAndMakeVisible(canvas);
   title.setText("PIANO ROLL / TRACK AUTOMATION",juce::dontSendNotification);PulseTheme::style(title,17,true);PulseTheme::style(status,12,false,PulseTheme::muted);
   int id=1;for(auto* s:{"Sine","Electric keys","Organ","Pluck"})instrument.addItem(s,id++);instrument.setSelectedId(track.instrument+1,juce::dontSendNotification);instrument.onChange=[this]{track.instrument=instrument.getSelectedId()-1;};
   mode.addItem("Piano roll",1);mode.addItem("Gain automation",2);mode.addItem("Pan automation",3);mode.setSelectedId(1,juce::dontSendNotification);mode.onChange=[this]{canvas.repaint();};
@@ -91,6 +91,6 @@ public:
  }
  ~MusicPanel()override{stopTimer();chooser.reset();finishCapture();}
  void resized()override{auto r=getLocalBounds().reduced(8);title.setBounds(r.removeFromTop(30));auto row=r.removeFromTop(32);int n=4;for(auto* b:{&mode,&instrument,&octave,&device})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));
-  row=r.removeFromTop(30);n=3;for(auto* s:{&length,&velocity,&grid})s->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));
+  row=r.removeFromTop(30);fromCursor.setBounds(row.removeFromRight(128));n=3;for(auto* s:{&length,&velocity,&grid})s->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));
   row=r.removeFromTop(32);n=7;for(auto* b:{&prev,&next,&record,&stop,&importMidi,&clear,&apply})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));status.setBounds(r.removeFromBottom(26));canvas.setBounds(r);}
 };

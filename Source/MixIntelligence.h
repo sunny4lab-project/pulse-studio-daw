@@ -20,6 +20,7 @@ inline float energyDb(float power){return 10.f*std::log10(std::max(1e-12f,power)
 inline float maskingCut(float competing,float vocal){if(vocal<1e-6f||competing<1e-6f)return 0;return -std::clamp((energyDb(competing)-energyDb(vocal)+3.f)*.25f,0.f,3.f);}
 inline float masterStep(float shortLufs,float target,float peakDb,float currentDb,float anchorDb){
  if(!std::isfinite(shortLufs)||shortLufs<-60||!std::isfinite(peakDb)||!std::isfinite(currentDb)||!std::isfinite(anchorDb))return 0;
+ if(currentDb<anchorDb-3.01f||currentDb>anchorDb+3.01f)return 0;
  float error=target-shortLufs;if(std::abs(error)<.8f) return 0;
  float step=std::clamp(error*.06f,-.12f,.06f);if(step>0)step=std::min(step,std::max(0.f,-2.f-peakDb));
  return std::clamp(currentDb+step,std::max(-60.f,anchorDb-3.f),std::min(0.f,anchorDb+3.f))-currentDb;
