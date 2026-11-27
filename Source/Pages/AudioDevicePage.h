@@ -42,7 +42,7 @@ public:
   }else text<<"\nNo active audio device. Open Configure device to select one.";
   if(e.deviceError.isNotEmpty()&&!active)text<<"\nError: "<<e.deviceError;
   if(diagnostics.getText()!=text)diagnostics.setText(text,false);
-  bool idle=!e.enabled.load()&&!e.transport.isPlaying()&&!e.multitrack.active();
+  bool idle=e.canEditInserts();
   configure.setEnabled(idle);scan.setEnabled(idle);save.setEnabled(idle&&active&&!monitor.requiresReview());bulk.setEnabled(idle&&active&&!ins.isEmpty()&&!monitor.requiresReview());
  }
  void resized() override {auto r=getLocalBounds().reduced(5);auto row=r.removeFromTop(100);driver.setBounds(row.removeFromLeft(row.getWidth()/2));channels.setBounds(row);row=r.removeFromTop(34);configure.setBounds(row.removeFromLeft(row.getWidth()/3).reduced(2));scan.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));save.setBounds(row.reduced(2));row=r.removeFromTop(32);bulk.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));autoReconnect.setBounds(row.reduced(2));result.setBounds(r.removeFromTop(30));note.setBounds(r.removeFromTop(70));diagnostics.setBounds(r.reduced(2));}
