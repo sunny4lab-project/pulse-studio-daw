@@ -15,7 +15,7 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
  juce::TextButton scan{"Scan installed"},file{"Scan file"},cancel{"Stop scan"},load{"Load selected"},favorite{"Favorite"},onlyFavorites{"Favorites only"},clearBlacklist{"Retry skipped"};
  std::unique_ptr<juce::FileChooser> chooser;
  std::unique_ptr<juce::PluginDirectoryScanner> scanner;
- int formatIndex=0;bool scanning=false,allFormats=false;
+ int formatIndex=0;bool scanning=false,allFormats=false,instruments=false;
  std::function<void(const juce::PluginDescription&)> onLoad;
  static juce::File directory(){return Engine::deviceSettingsFile().getParentDirectory();}
  static juce::File cache(){return directory().getChildFile("plugin-library.xml");}
@@ -39,10 +39,10 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
   int idx=values.indexOf(current);box.setSelectedId(idx>=0?idx+2:1,juce::dontSendNotification);
  }
  void updateList(bool updateFilters=false){
-  if(updateFilters){juce::StringArray makers,cats;for(auto& p:known.getTypes())if(!p.isInstrument){makers.add(p.manufacturerName);cats.add(p.category);}populate(manufacturer,makers,"All manufacturers");populate(category,cats,"All categories");}
+  if(updateFilters){juce::StringArray makers,cats;for(auto& p:known.getTypes())if(p.isInstrument==instruments){makers.add(p.manufacturerName);cats.add(p.category);}populate(manufacturer,makers,"All manufacturers");populate(category,cats,"All categories");}
   filtered.clear();auto term=search.getText().trim();
   for(auto& p:known.getTypes()){
-   if(p.isInstrument)continue;
+   if(p.isInstrument!=instruments)continue;
    if(manufacturer.getSelectedId()>1&&p.manufacturerName!=manufacturer.getText())continue;
    if(category.getSelectedId()>1&&p.category!=category.getText())continue;
    if(onlyFavorites.getToggleState()&&!favorites.contains(p.createIdentifierString()))continue;
@@ -74,7 +74,7 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
  void finish(){
   stopTimer();if(scanner){failures.addArray(scanner->getFailedFiles());scanner.reset();}
   scanning=false;known.scanFinished();persist();updateList(true);
-  status.setText(juce::String(known.getNumTypes())+" discovered | "+juce::String(known.getBlacklistedFiles().size())+" skipped | "+juce::String(failures.size())+" scan failures. Only effects are displayed.",juce::dontSendNotification);
+  status.setText(juce::String(known.getNumTypes())+" discovered | "+juce::String(known.getBlacklistedFiles().size())+" skipped | "+juce::String(failures.size())+" scan failures. Showing "+(instruments?"instruments.":"effects."),juce::dontSendNotification);
  }
  void timerCallback() override{
   if(!scanning||!e.canEditInserts()){finish();return;}
@@ -98,9 +98,9 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
   });
  }
 public:
- PluginBrowser(Engine& engine,std::function<void(const juce::PluginDescription&)> callback):e(engine),onLoad(std::move(callback)){
+ PluginBrowser(Engine& engine,std::function<void(const juce::PluginDescription&)> callback,bool showInstruments=false):e(engine),instruments(showInstruments),onLoad(std::move(callback)){
   for(auto* c:std::array<juce::Component*,13>{&heading,&status,&search,&manufacturer,&category,&list,&scan,&file,&cancel,&load,&favorite,&onlyFavorites,&clearBlacklist})addAndMakeVisible(c);
-  heading.setText("PLUGIN LIBRARY / STEREO EFFECTS",juce::dontSendNotification);PulseTheme::style(heading,17,true);PulseTheme::style(status,11,false,PulseTheme::muted);
+  heading.setText(instruments?"PLUGIN LIBRARY / INSTRUMENTS":"PLUGIN LIBRARY / STEREO EFFECTS",juce::dontSendNotification);PulseTheme::style(heading,17,true);PulseTheme::style(status,11,false,PulseTheme::muted);
   search.setTextToShowWhenEmpty("Search plugin, manufacturer, category...",PulseTheme::muted);search.onTextChange=[this]{updateList();};
   manufacturer.onChange=[this]{updateList();};category.onChange=[this]{updateList();};
   list.setRowHeight(28);list.setMultipleSelectionEnabled(false);list.setColour(juce::ListBox::backgroundColourId,PulseTheme::panel);
