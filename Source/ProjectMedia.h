@@ -16,7 +16,7 @@ public:
   if(e.timeline){auto* list=root.createNewChildElement("Timeline");for(auto& t:e.timeline->session().tracks){auto* x=list->createNewChildElement("Track");x->setAttribute("name",t.name);x->setAttribute("gain",(double)t.gain);x->setAttribute("pan",(double)t.pan);x->setAttribute("mute",t.mute);x->setAttribute("solo",t.solo);x->setAttribute("instrument",t.instrument);x->setAttribute("bus",t.bus);
   for(auto& n:t.notes){auto* y=x->createNewChildElement("Note");y->setAttribute("start",juce::String(n.start));y->setAttribute("length",juce::String(n.length));y->setAttribute("pitch",n.pitch);y->setAttribute("velocity",(double)n.velocity);}
   auto savePoints=[&](const char* tag,const std::vector<AutomationPoint>& points){for(auto& p:points){auto* y=x->createNewChildElement(tag);y->setAttribute("frame",juce::String(p.frame));y->setAttribute("value",(double)p.value);}};savePoints("GainPoint",t.gainAutomation);savePoints("PanPoint",t.panAutomation);
-  for(auto& c:t.clips){auto* y=x->createNewChildElement("Clip");y->setAttribute("path",c.file.getFullPathName());y->setAttribute("start",juce::String(c.start));y->setAttribute("offset",juce::String(c.offset));y->setAttribute("length",juce::String(c.length));y->setAttribute("fadeIn",juce::String(c.fadeIn));y->setAttribute("fadeOut",juce::String(c.fadeOut));y->setAttribute("gain",(double)c.gain);}}return;}
+  for(auto& c:t.clips){auto* y=x->createNewChildElement("Clip");y->setAttribute("path",c.file.getFullPathName());y->setAttribute("start",juce::String(c.start));y->setAttribute("offset",juce::String(c.offset));y->setAttribute("length",juce::String(c.length));y->setAttribute("fadeIn",juce::String(c.fadeIn));y->setAttribute("fadeOut",juce::String(c.fadeOut));y->setAttribute("gain",(double)c.gain);y->setAttribute("playRate",c.playbackRate);}}return;}
   for(int i=0;i<e.stemFiles.size();++i){
    root.setAttribute("mediaPath"+juce::String(i),e.stemFiles[i].getFullPathName());
    root.setAttribute("mediaTrim"+juce::String(i),(double)e.stemTrims[i].load());
@@ -34,7 +34,7 @@ public:
     for(auto* y:x->getChildIterator()){
     if(y->hasTagName("Note")){MidiNote n;n.start=y->getStringAttribute("start").getLargeIntValue();n.length=y->getStringAttribute("length").getLargeIntValue();n.pitch=y->getIntAttribute("pitch",-1);n.velocity=(float)y->getDoubleAttribute("velocity",-1);t.notes.push_back(n);continue;}
     if(y->hasTagName("GainPoint")||y->hasTagName("PanPoint")){AutomationPoint p;p.frame=y->getStringAttribute("frame").getLargeIntValue();p.value=(float)y->getDoubleAttribute("value",0);(y->hasTagName("GainPoint")?t.gainAutomation:t.panAutomation).push_back(p);continue;}
-    auto path=y->getStringAttribute("path");if(!y->hasTagName("Clip")||!juce::File::isAbsolutePath(path))return "Invalid timeline clip path.";AudioClip c;c.file=juce::File(path);c.start=y->getStringAttribute("start").getLargeIntValue();c.offset=y->getStringAttribute("offset").getLargeIntValue();c.length=y->getStringAttribute("length").getLargeIntValue();c.fadeIn=y->getStringAttribute("fadeIn").getLargeIntValue();c.fadeOut=y->getStringAttribute("fadeOut").getLargeIntValue();c.gain=(float)y->getDoubleAttribute("gain",1);t.clips.push_back(std::move(c));}model.tracks.push_back(std::move(t));}
+    auto path=y->getStringAttribute("path");if(!y->hasTagName("Clip")||!juce::File::isAbsolutePath(path))return "Invalid timeline clip path.";AudioClip c;c.file=juce::File(path);c.start=y->getStringAttribute("start").getLargeIntValue();c.offset=y->getStringAttribute("offset").getLargeIntValue();c.length=y->getStringAttribute("length").getLargeIntValue();c.fadeIn=y->getStringAttribute("fadeIn").getLargeIntValue();c.fadeOut=y->getStringAttribute("fadeOut").getLargeIntValue();c.gain=(float)y->getDoubleAttribute("gain",1);c.playbackRate=y->getDoubleAttribute("playRate",1);t.clips.push_back(std::move(c));}model.tracks.push_back(std::move(t));}
    juce::String error;timeline=TimelineSource::create(e.formats,std::move(model),error);return timeline?juce::String():error;
   }
   if(!n)return {};
@@ -52,7 +52,7 @@ public:
  }
  void apply(Engine& e){
   if(timeline){e.applyTimeline(std::move(timeline),cursor);return;}
-  e.transport.stop();e.transport.setSource(nullptr);e.timeline.reset();e.arrangementMask=0;
+  e.transport.stop();e.transport.setSource(nullptr);e.clipLoop.reset();e.timeline.reset();e.arrangementMask=0;
   for(int i=0;i<stemCount;++i){e.stemTrims[i]=trims[i];e.stemMutes[i]=mutes[i];}
   e.reader=std::move(source);e.stemFiles=files;
   if(e.reader){e.transport.setSource(e.reader.get(),16384,&e.stemDisk,e.reader->getRate());e.transport.setPosition(juce::jlimit(0.0,e.transport.getLengthInSeconds(),cursor));}

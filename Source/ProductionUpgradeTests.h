@@ -13,6 +13,8 @@ inline bool testProductionUpgrade(){
  String error;auto routed=TimelineSource::create(e.formats,session,error);if(!routed||routed->busMask()!=(1u<<9))return false;routed->enableBusOutputs();
  AudioBuffer<float> data(22,512);routed->setNextReadPosition(3000);routed->getNextAudioBlock({&data,0,512});
  if(data.getMagnitude(20,0,512)<.001f||data.getMagnitude(0,0,512)!=0||data.getMagnitude(18,0,512)!=0)return false;
+ auto loopModel=session;auto loop=TimelineSource::create(e.formats,loopModel,error);if(!loop)return false;loop->enableLoop();AudioBuffer<float> loopData(2,512),loopRef(2,256);loop->setNextReadPosition(24000-256);loop->getNextAudioBlock({&loopData,0,512});loop->setNextReadPosition(0);loop->getNextAudioBlock({&loopRef,0,256});for(int i=0;i<256;++i)if(std::abs(loopData.getSample(0,i+256)-loopRef.getSample(0,i))>.00001f)return false;
+ AudioClip check;check.length=100;check.playbackRate=2;if(validClip(check,199)||!validClip(check,200))return false;
  auto stereo=TimelineSource::create(e.formats,session,error);if(!stereo)return false;AudioBuffer<float> render(2,512);stereo->setNextReadPosition(3000);stereo->getNextAudioBlock({&render,0,512});if(render.getMagnitude(0,512)<.001f)return false;
  if(e.setTimeline(session,0).isNotEmpty()||e.arrangementMask.load()!=(1u<<9))return false;
  XmlElement root("PulseProject");root.setAttribute("version",8);ProjectMedia::save(e,root);ProjectMedia media;if(media.stage(e,root).isNotEmpty())return false;media.apply(e);if(e.arrangementMask.load()!=(1u<<9))return false;

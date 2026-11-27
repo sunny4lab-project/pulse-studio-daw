@@ -9,7 +9,7 @@ using Frame=juce::int64;
 inline constexpr double timelineRate=48000.0;
 inline constexpr Frame timelineLimit=48LL*60*60*48000;
 struct AudioClip {
- juce::File file;Frame start=0,offset=0,length=0,fadeIn=0,fadeOut=0;float gain=1.f;
+ juce::File file;Frame start=0,offset=0,length=0,fadeIn=0,fadeOut=0;float gain=1.f;double playbackRate=1.0;
 };
 struct TimelineTrack {
  juce::String name;float gain=1.f,pan=0.f;bool mute=false,solo=false;
@@ -21,20 +21,20 @@ struct TimelineSession {
  bool split(int track,int clip,Frame at){
   if(track<0||track>=(int)tracks.size())return false;auto& v=tracks[track].clips;
   if(clip<0||clip>=(int)v.size())return false;auto c=v[clip];Frame cut=at-c.start;if(cut<=0||cut>=c.length)return false;
-  auto right=c;right.start=at;right.offset+=cut;right.length-=cut;right.fadeIn=0;right.fadeOut=std::min(right.fadeOut,right.length);
+  auto right=c;right.start=at;right.offset+=(Frame)std::llround(cut*c.playbackRate);right.length-=cut;right.fadeIn=0;right.fadeOut=std::min(right.fadeOut,right.length);
   c.length=cut;c.fadeOut=0;c.fadeIn=std::min(c.fadeIn,c.length);v[clip]=c;v.insert(v.begin()+clip+1,right);return true;
  }
  static Frame duration(const juce::AudioFormatReader& r){return (Frame)std::min((double)timelineLimit,std::floor((double)r.lengthInSamples*timelineRate/r.sampleRate));}
 };
 inline bool validClip(const AudioClip& c,Frame available){
- return c.start>=0&&c.start<=timelineLimit&&c.offset>=0&&c.offset<=available&&c.length>0&&c.length<=available-c.offset&&c.length<=timelineLimit-c.start&&c.fadeIn>=0&&c.fadeOut>=0&&c.fadeIn<=c.length&&c.fadeOut<=c.length&&std::isfinite(c.gain)&&c.gain>=0&&c.gain<=4;
+ return c.start>=0&&c.start<=timelineLimit&&c.offset>=0&&c.offset<=available&&c.length>0&&std::isfinite(c.playbackRate)&&c.playbackRate>=.5&&c.playbackRate<=2&&std::ceil(c.length*c.playbackRate)<=available-c.offset&&c.length<=timelineLimit-c.start&&c.fadeIn>=0&&c.fadeOut>=0&&c.fadeIn<=c.length&&c.fadeOut<=c.length&&std::isfinite(c.gain)&&c.gain>=0&&c.gain<=4;
 }
 // Immutable session snapshot, rendered by the transport read-ahead thread.
 // The fixed 48 kHz project clock supports mixed file rates via linear interpolation.
 class TimelineSource final : public juce::PositionableAudioSource {
  struct Item {const TimelineTrack* track;const AudioClip* clip;std::unique_ptr<juce::AudioFormatReader> reader;};
  TimelineSession model;std::vector<Item> items;
- juce::AudioBuffer<float> scratch{2,8194};std::atomic<Frame> position{0};Frame total=0;bool anySolo=false;bool routed=false;unsigned routeMask=0;
+ juce::AudioBuffer<float> scratch{2,8194};std::atomic<Frame> position{0};Frame total=0;bool anySolo=false;bool routed=false,loop=false;unsigned routeMask=0;
  std::atomic<bool> readError{false};
  explicit TimelineSource(TimelineSession s):model(std::move(s)){}
 public:
@@ -56,6 +56,7 @@ public:
   src->total=src->model.length();error.clear();return src;
  }
  void enableBusOutputs(){routed=true;}
+ void enableLoop(){loop=total>0;}
  unsigned busMask()const{return routeMask;}
  int outputStart(const TimelineTrack& t)const{return routed&&t.bus>=0?2*(t.bus+1):0;}
  const TimelineSession& session()const{return model;}
@@ -65,17 +66,20 @@ public:
  void setNextReadPosition(Frame p)override{position=std::max<Frame>(0,p);}
  Frame getNextReadPosition()const override{return position.load();}
  Frame getTotalLength()const override{return total;}
- bool isLooping()const override{return false;}
+ bool isLooping()const override{return loop;}
  void getNextAudioBlock(const juce::AudioSourceChannelInfo& info)override{
-  if(!info.buffer||info.numSamples<=0)return;info.clearActiveBufferRegion();Frame pos=position.load();
+  if(!info.buffer||info.numSamples<=0)return;Frame pos=position.load();if(loop&&total>0){int remaining=info.numSamples,offset=info.startSample;Frame at=pos;while(remaining>0){Frame local=at%total;int n=(int)std::min<Frame>(remaining,total-local);renderBlock({info.buffer,offset,n},local);remaining-=n;offset+=n;at+=n;}}else renderBlock(info,pos);position=pos+info.numSamples;
+ }
+private:
+ void renderBlock(const juce::AudioSourceChannelInfo& info,Frame pos){info.clearActiveBufferRegion();
   for(auto& item:items){
    auto& t=*item.track;auto& c=*item.clip;auto& r=*item.reader;
    if(t.mute||(anySolo&&!t.solo)||(t.gain==0&&t.gainAutomation.empty())||c.gain==0)continue;
    Frame begin=std::max(pos,c.start),end=std::min(pos+info.numSamples,c.start+c.length);
    if(end<=begin)continue;
-   double ratio=r.sampleRate/timelineRate;float g=c.gain;
+   double ratio=r.sampleRate/timelineRate*c.playbackRate;float g=c.gain;
    for(Frame p=begin;p<end;){
-    int n=(int)std::min<Frame>(1024,end-p);
+    int n=(int)std::min<Frame>(512,end-p);
     double first=(double)(c.offset+p-c.start)*ratio;Frame base=(Frame)std::floor(first);
     int need=(int)std::floor(first-base+(n-1)*ratio)+2;
     scratch.clear();int available=(int)std::min<Frame>(need,std::max<Frame>(0,r.lengthInSamples-base));
@@ -90,7 +94,6 @@ public:
    }
   }
   for(auto& t:model.tracks){if(t.mute||(anySolo&&!t.solo))continue;for(auto& note:t.notes){Frame begin=std::max(pos,note.start),end=std::min(pos+info.numSamples,note.start+note.length);for(Frame p=begin;p<end;++p){float value=instrumentSample(t.instrument,note.pitch,p-note.start,note.length,note.velocity,timelineRate)*automationAt(t.gainAutomation,p,t.gain);float pan=automationAt(t.panAutomation,p,t.pan);for(int k=0;k<std::min(2,info.buffer->getNumChannels());++k)if(outputStart(t)+k<info.buffer->getNumChannels())info.buffer->addSample(outputStart(t)+k,info.startSample+(int)(p-pos),value*std::min(1.f,1.f+(k?pan:-pan)));}}}
-  position=pos+info.numSamples;
  }
 };
 }
