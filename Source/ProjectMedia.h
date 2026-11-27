@@ -13,7 +13,7 @@ public:
  static void save(Engine& e,juce::XmlElement& root){
   root.setAttribute("mediaCount",e.stemFiles.size());
   root.setAttribute("mediaCursor",e.transport.getCurrentPosition());
-  if(e.timeline){auto* list=root.createNewChildElement("Timeline");for(auto& t:e.timeline->session().tracks){auto* x=list->createNewChildElement("Track");x->setAttribute("name",t.name);x->setAttribute("gain",(double)t.gain);x->setAttribute("pan",(double)t.pan);x->setAttribute("mute",t.mute);x->setAttribute("solo",t.solo);x->setAttribute("instrument",t.instrument);
+  if(e.timeline){auto* list=root.createNewChildElement("Timeline");for(auto& t:e.timeline->session().tracks){auto* x=list->createNewChildElement("Track");x->setAttribute("name",t.name);x->setAttribute("gain",(double)t.gain);x->setAttribute("pan",(double)t.pan);x->setAttribute("mute",t.mute);x->setAttribute("solo",t.solo);x->setAttribute("instrument",t.instrument);x->setAttribute("bus",t.bus);
   for(auto& n:t.notes){auto* y=x->createNewChildElement("Note");y->setAttribute("start",juce::String(n.start));y->setAttribute("length",juce::String(n.length));y->setAttribute("pitch",n.pitch);y->setAttribute("velocity",(double)n.velocity);}
   auto savePoints=[&](const char* tag,const std::vector<AutomationPoint>& points){for(auto& p:points){auto* y=x->createNewChildElement(tag);y->setAttribute("frame",juce::String(p.frame));y->setAttribute("value",(double)p.value);}};savePoints("GainPoint",t.gainAutomation);savePoints("PanPoint",t.panAutomation);
   for(auto& c:t.clips){auto* y=x->createNewChildElement("Clip");y->setAttribute("path",c.file.getFullPathName());y->setAttribute("start",juce::String(c.start));y->setAttribute("offset",juce::String(c.offset));y->setAttribute("length",juce::String(c.length));y->setAttribute("fadeIn",juce::String(c.fadeIn));y->setAttribute("fadeOut",juce::String(c.fadeOut));y->setAttribute("gain",(double)c.gain);}}return;}
@@ -30,7 +30,7 @@ public:
   cursor=root.getDoubleAttribute("mediaCursor",0);if(!std::isfinite(cursor)||cursor<0)cursor=0;
   if(auto* list=root.getChildByName("Timeline")){
    if(n||root.getIntAttribute("version")<6)return "Invalid mixed timeline and legacy media section.";
-   TimelineSession model;for(auto* x:list->getChildIterator()){if(!x->hasTagName("Track"))return "Invalid timeline track.";TimelineTrack t;t.name=x->getStringAttribute("name");t.gain=(float)x->getDoubleAttribute("gain",1);t.pan=(float)x->getDoubleAttribute("pan",0);t.mute=x->getBoolAttribute("mute",false);t.solo=x->getBoolAttribute("solo",false);t.instrument=x->getIntAttribute("instrument",0);
+   TimelineSession model;for(auto* x:list->getChildIterator()){if(!x->hasTagName("Track"))return "Invalid timeline track.";TimelineTrack t;t.name=x->getStringAttribute("name");t.gain=(float)x->getDoubleAttribute("gain",1);t.pan=(float)x->getDoubleAttribute("pan",0);t.mute=x->getBoolAttribute("mute",false);t.solo=x->getBoolAttribute("solo",false);t.instrument=x->getIntAttribute("instrument",0);t.bus=x->getIntAttribute("bus",-1);
     for(auto* y:x->getChildIterator()){
     if(y->hasTagName("Note")){MidiNote n;n.start=y->getStringAttribute("start").getLargeIntValue();n.length=y->getStringAttribute("length").getLargeIntValue();n.pitch=y->getIntAttribute("pitch",-1);n.velocity=(float)y->getDoubleAttribute("velocity",-1);t.notes.push_back(n);continue;}
     if(y->hasTagName("GainPoint")||y->hasTagName("PanPoint")){AutomationPoint p;p.frame=y->getStringAttribute("frame").getLargeIntValue();p.value=(float)y->getDoubleAttribute("value",0);(y->hasTagName("GainPoint")?t.gainAutomation:t.panAutomation).push_back(p);continue;}
@@ -52,7 +52,7 @@ public:
  }
  void apply(Engine& e){
   if(timeline){e.applyTimeline(std::move(timeline),cursor);return;}
-  e.transport.stop();e.transport.setSource(nullptr);e.timeline.reset();
+  e.transport.stop();e.transport.setSource(nullptr);e.timeline.reset();e.arrangementMask=0;
   for(int i=0;i<stemCount;++i){e.stemTrims[i]=trims[i];e.stemMutes[i]=mutes[i];}
   e.reader=std::move(source);e.stemFiles=files;
   if(e.reader){e.transport.setSource(e.reader.get(),16384,&e.stemDisk,e.reader->getRate());e.transport.setPosition(juce::jlimit(0.0,e.transport.getLengthInSeconds(),cursor));}
