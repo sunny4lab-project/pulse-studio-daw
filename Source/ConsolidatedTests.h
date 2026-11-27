@@ -12,9 +12,9 @@ public:
  void releaseResources()override{}
  void processBlock(juce::AudioBuffer<float>& block,juce::MidiBuffer&)override{line.process(block.getWritePointer(0),block.getWritePointer(1),block.getNumSamples());}
  double getTailLengthSeconds()const override{return 0;}
- bool acceptsMidi()const override{return pulse::testFailure(__FILE__,__LINE__);}
- bool producesMidi()const override{return pulse::testFailure(__FILE__,__LINE__);}
- bool hasEditor()const override{return pulse::testFailure(__FILE__,__LINE__);}
+ bool acceptsMidi()const override{return false;}
+ bool producesMidi()const override{return false;}
+ bool hasEditor()const override{return false;}
  juce::AudioProcessorEditor* createEditor()override{return nullptr;}
  int getNumPrograms()override{return 1;}
  int getCurrentProgram()override{return 0;}

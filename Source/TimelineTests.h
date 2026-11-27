@@ -34,7 +34,7 @@ inline bool testTimeline(){
  if(!render||!renderTimelineWav(*render,out,{},error)||!out.existsAsFile())return pulse::testFailure(__FILE__,__LINE__);
  std::unique_ptr<AudioFormatReader> rd(e.formats.createReaderFor(out));if(!rd||rd->numChannels!=2||rd->lengthInSamples!=96||rd->sampleRate!=48000)return pulse::testFailure(__FILE__,__LINE__);
  if(!rd->read(&data,0,96,0,true,true)||!close(data.getSample(1,40),.5f))return pulse::testFailure(__FILE__,__LINE__);
- auto cancelled=dir.getChildFile("cancel.wav");if(renderTimelineWav(*render,cancelled,[](double){return pulse::testFailure(__FILE__,__LINE__);},error)||cancelled.exists())return pulse::testFailure(__FILE__,__LINE__);
+ auto cancelled=dir.getChildFile("cancel.wav");if(renderTimelineWav(*render,cancelled,[](double){return false;},error)||cancelled.exists())return pulse::testFailure(__FILE__,__LINE__);
  // Missing clip references must not replace the current valid session.
  auto* clip=root.getChildByName("Timeline")->getChildElement(0)->getChildElement(0);clip->setAttribute("path",dir.getChildFile("missing.wav").getFullPathName());
  ProjectMedia bad;return bad.stage(e,root).isNotEmpty()&&e.timeline&&e.timeline->session().tracks.size()==2;
