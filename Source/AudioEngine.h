@@ -6,6 +6,7 @@
 #include "Dsp.h"
 #include "ToneDSP.h"
 #include "StemSource.h"
+#include "TimelineSource.h"
 #include "OutputMix.h"
 #include "InsertRack.h"
 #include "MultitrackRecorder.h"
@@ -27,7 +28,7 @@ public:
  AudioDeviceManager devices; AudioFormatManager formats; AudioTransportSource transport; TimeSliceThread disk{"Recording disk"}, stemDisk{"Stem read ahead"};
  pulse::MultitrackRecorder multitrack{disk};pulse::TrackRecorder trackRecorder{disk};static constexpr int dcaCount=8;std::array<std::atomic<float>,dcaCount> dcaGain{};std::array<std::atomic<bool>,dcaCount> dcaMute{}; pulse::SendEffects sends; pulse::MasterLimiter limiter; pulse::LoudnessMeter loudness;
  std::atomic<bool> limiterEnabled{false},resetLoudness{false};std::atomic<float> limiterCeiling{-1.f},limiterRelease{100.f},limiterReduction{0.f},momentaryLufs{-100.f},shortLufs{-100.f},integratedLufs{-100.f},estimatedTruePeak{0.f};
- std::unique_ptr<pulse::StemSource> reader; std::array<std::atomic<float>,pulse::stemCount> stemTrims{}; std::array<std::atomic<bool>,pulse::stemCount> stemMutes{}; Array<File> stemFiles; std::atomic<float> rms{0}; std::atomic<unsigned> clippedBlocks{0}; std::unique_ptr<AudioFormatWriter::ThreadedWriter> writer; CriticalSection recordLock; std::atomic<unsigned> missedWrites{0}; std::atomic<double> rate{48000}; AudioBuffer<float> playback; std::array<AudioBuffer<float>,B> buses; std::array<std::atomic<float>,B> busGain{}, busPeak{};
+ std::unique_ptr<pulse::StemSource> reader;std::unique_ptr<pulse::TimelineSource> timeline; std::array<std::atomic<float>,pulse::stemCount> stemTrims{}; std::array<std::atomic<bool>,pulse::stemCount> stemMutes{}; Array<File> stemFiles; std::atomic<float> rms{0}; std::atomic<unsigned> clippedBlocks{0}; std::unique_ptr<AudioFormatWriter::ThreadedWriter> writer; CriticalSection recordLock; std::atomic<unsigned> missedWrites{0}; std::atomic<double> rate{48000}; AudioBuffer<float> playback; std::array<AudioBuffer<float>,B> buses; std::array<std::atomic<float>,B> busGain{}, busPeak{};
  std::array<std::atomic<float>,B*pulse::auxMixCount> auxSend{}; std::array<std::atomic<float>,pulse::auxMixCount> auxGain{},auxPeak{}; std::array<std::atomic<bool>,pulse::auxMixCount> auxArmed{},auxAvailable{};
  void disarmAux() noexcept {for(auto& a:auxArmed)a=false;}
  float getAuxSend(int bus,int mix) const noexcept {return auxSend[bus*pulse::auxMixCount+mix].load();}
@@ -206,7 +207,10 @@ public:
   if(found.isEmpty())return "No compatible plugin found";if(found.size()!=1)return "This file exposes multiple plugins. Choose the individual effect in the plugin browser.";
   return loadPluginDescription(*found[0]);
  }
- bool replaceStems(const Array<File>& files,bool reset){if(files.isEmpty()||files.size()>pulse::stemCount)return false;auto next=std::make_unique<pulse::StemSource>(stemTrims,stemMutes);for(const auto& f:files)if(!next->add(std::unique_ptr<AudioFormatReader>(formats.createReaderFor(f))))return false;transport.stop();transport.setSource(nullptr);if(reset){for(auto& t:stemTrims)t=1.f;for(auto& m:stemMutes)m=false;}reader=std::move(next);stemFiles=files;transport.setSource(reader.get(),16384,&stemDisk,reader->getRate());transport.setPosition(0);return true;}
+ pulse::TimelineSession timelineSession(){if(timeline)return timeline->session();pulse::TimelineSession session;for(int i=0;i<stemFiles.size();++i){std::unique_ptr<AudioFormatReader> r(formats.createReaderFor(stemFiles[i]));if(!r)continue;pulse::TimelineTrack t;t.name=stemFiles[i].getFileNameWithoutExtension();t.gain=stemTrims[i].load()/std::max(1,stemFiles.size());t.mute=stemMutes[i].load();pulse::AudioClip clip;clip.file=stemFiles[i];clip.length=pulse::TimelineSession::duration(*r);t.clips.push_back(clip);session.tracks.push_back(std::move(t));}return session;}
+ void applyTimeline(std::unique_ptr<pulse::TimelineSource> next,double cursor){transport.stop();transport.setSource(nullptr);reader.reset();stemFiles.clear();timeline=std::move(next);if(timeline&&timeline->getTotalLength()>0){transport.setSource(timeline.get(),16384,&stemDisk,pulse::timelineRate);transport.setPosition(jlimit(0.0,transport.getLengthInSeconds(),cursor));}}
+ String setTimeline(pulse::TimelineSession model,double cursor){if(!canEditInserts())return "Stop playback, live audio and recording before editing clips.";String error;auto next=pulse::TimelineSource::create(formats,std::move(model),error);if(!next)return error;applyTimeline(std::move(next),cursor);return {};}
+ bool replaceStems(const Array<File>& files,bool reset){if(!canEditInserts())return false;if(files.isEmpty()||files.size()>pulse::stemCount)return false;auto next=std::make_unique<pulse::StemSource>(stemTrims,stemMutes);for(const auto& f:files)if(!next->add(std::unique_ptr<AudioFormatReader>(formats.createReaderFor(f))))return false;transport.stop();transport.setSource(nullptr);timeline.reset();if(reset){for(auto& t:stemTrims)t=1.f;for(auto& m:stemMutes)m=false;}reader=std::move(next);stemFiles=files;transport.setSource(reader.get(),16384,&stemDisk,reader->getRate());transport.setPosition(0);return true;}
  bool load(File f){Array<File> files;files.add(f);return replaceStems(files,true);}
  bool addStem(File f){if(stemFiles.size()>=pulse::stemCount)return false;auto files=stemFiles;files.add(f);int index=files.size()-1;stemTrims[index]=1.f;stemMutes[index]=false;return replaceStems(files,false);}
  bool removeStem(){if(stemFiles.size()<2)return false;auto files=stemFiles;files.removeLast();return replaceStems(files,false);}
