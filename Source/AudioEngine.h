@@ -204,17 +204,25 @@ public:
   const ScopedTryLock lock(recordLock); if(lock.isLocked() && writer && !writer->write(mixOut,n)) ++missedWrites;
  }
  bool canEditInserts(){const ScopedLock lock(recordLock);return !enabled.load()&&!transport.isPlaying()&&!writer&&!multitrack.active()&&!trackRecorder.active();}
+ // Offline session setup does not open or arm any physical device. Plugins
+ // are re-prepared at the actual device rate/block in audioDeviceAboutToStart.
+ struct PluginPreparation {double sampleRate=48000.0;int blockSize=256;bool connected=false;};
+ PluginPreparation pluginPreparation()const{
+  if(auto* d=devices.getCurrentAudioDevice();d&&d->isPlaying()&&d->getCurrentSampleRate()>0&&d->getCurrentBufferSizeSamples()>0)
+   return {d->getCurrentSampleRate(),d->getCurrentBufferSizeSamples(),true};
+  return {};
+ }
  String changeInsertDescription(int rack,int slot,const PluginDescription* desc){
   if(rack<0||rack>rackCount()||slot<0||slot>=pulse::insertsPerRack)return "Invalid insert slot";
   if(!canEditInserts())return "Stop playback and recording and disable live inputs first.";
-  auto* d=devices.getCurrentAudioDevice();if(desc&&(!d||!d->isPlaying()))return "Open Audio setup first";
+  const auto prep=pluginPreparation();
   std::unique_ptr<AudioPluginInstance> instance;
   if(desc){
    if(desc->isInstrument)return "Virtual instruments are not yet supported.";
-   String error;instance=pluginFormats.createPluginInstance(*desc,rate.load(),d->getCurrentBufferSizeSamples(),error);
+   String error;instance=pluginFormats.createPluginInstance(*desc,prep.sampleRate,prep.blockSize,error);
    if(!instance)return error.isEmpty()?String("Plugin load failed"):error;
    if(instance->getTotalNumInputChannels()!=2||instance->getTotalNumOutputChannels()!=2)return "Only stereo 2-in/2-out effects are supported";
-   instance->prepareToPlay(rate.load(),d->getCurrentBufferSizeSamples());int latency=instance->getLatencySamples();instance->releaseResources();
+   instance->prepareToPlay(prep.sampleRate,prep.blockSize);int latency=instance->getLatencySamples();instance->releaseResources();
    if(rack!=rackCount()){int other=0;auto& rackRef=rackAt(rack);for(int i=0;i<pulse::insertsPerRack;++i)if(i!=slot&&rackRef.slots[i].plugin){int l=rackRef.slots[i].plugin->getLatencySamples();if(l<0||l>pulse::maxRackLatency-other)return "Existing rack latency exceeds budget.";other+=l;}
    if(latency<0||latency>pulse::maxRackLatency-other)return "Effect chain latency exceeds the 4096-sample per-rack budget.";}
   }

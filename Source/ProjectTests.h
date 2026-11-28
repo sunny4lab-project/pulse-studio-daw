@@ -6,6 +6,10 @@ namespace pulse {
 inline bool testProjectRecall(){
  using namespace juce;
  Engine e;if(!e.addChannel())return pulse::testFailure(__FILE__,__LINE__);
+ auto config=e.pluginPreparation();if(config.connected||config.sampleRate!=48000.0||config.blockSize!=256||e.devices.getCurrentAudioDevice()!=nullptr||e.enabled.load())return pulse::testFailure(__FILE__,__LINE__);
+ PluginDescription instrument;instrument.isInstrument=true;
+ if(e.changeInsertDescription(0,0,&instrument)!="Virtual instruments are not yet supported.")return pulse::testFailure(__FILE__,__LINE__);
+ if(e.changeInsertDescription(0,0,nullptr).isNotEmpty()||e.devices.getCurrentAudioDevice()!=nullptr||e.enabled.load())return pulse::testFailure(__FILE__,__LINE__);
  XmlElement project("PulseProject");project.setAttribute("version",4);project.setAttribute("channelCount",1);e.rackAt(0).visibleSlots=12;e.masterInserts.visibleSlots=16;
  if(PluginProject::save(e,project).isNotEmpty()||!project.getChildByName("Plugins")||PluginProject::restore(e,project).isNotEmpty())return pulse::testFailure(__FILE__,__LINE__);
  if(e.rackAt(0).visibleSlots!=12||e.masterInserts.visibleSlots!=16)return pulse::testFailure(__FILE__,__LINE__);

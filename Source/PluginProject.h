@@ -44,8 +44,7 @@ public:
   if(!list&&root.getIntAttribute("version")>=2)return "Missing plugin rack section.";
   if(targetCount<0)targetCount=e.channelCount();int masterRack=targetCount+B;int oldMaster=targetCount+(root.getIntAttribute("version")<3?legacyBusCount:B);size_t slotCount=index(masterRack,insertsPerRack-1)+1;
   if(list&&(size_t)list->getNumChildElements()>slotCount)return "Too many plugin slots for this mixer.";
-  auto* d=e.devices.getCurrentAudioDevice();
-  if(list&&list->getNumChildElements()>0&&(!d||!d->isPlaying()))return "Open Audio Device setup before restoring a project with plugins.";
+  const auto prep=e.pluginPreparation();
   std::vector<Pending> pending(slotCount);std::vector<bool> seen(slotCount,false);std::vector<int> rackLatency((size_t)masterRack,0),visible((size_t)masterRack+1,initialInsertSlots);size_t total=0;
   if(list&&root.getIntAttribute("version")>=4)for(int r=0;r<=masterRack;++r)visible[r]=juce::jlimit(initialInsertSlots,insertsPerRack,list->getIntAttribute("slots"+juce::String(r),initialInsertSlots));
   if(list)for(auto* x:list->getChildIterator()){
@@ -56,10 +55,10 @@ public:
    juce::PluginDescription desc;if(!desc.loadFromXml(*x->getChildElement(0))||desc.isInstrument)return "Invalid or unsupported effect description.";
    juce::MemoryBlock state;auto encoded=x->getStringAttribute("state");
    if(encoded.length()>24*1024*1024||!state.fromBase64Encoding(encoded)||state.getSize()>maxStateBytes||total+state.getSize()>maxTotalBytes)return "Invalid or oversized plugin state.";
-   total+=state.getSize();juce::String error;auto p=e.pluginFormats.createPluginInstance(desc,d->getCurrentSampleRate(),d->getCurrentBufferSizeSamples(),error);
+   total+=state.getSize();juce::String error;auto p=e.pluginFormats.createPluginInstance(desc,prep.sampleRate,prep.blockSize,error);
    if(!p)return "Cannot restore "+desc.name+": "+error;
    if(p->getTotalNumInputChannels()!=2||p->getTotalNumOutputChannels()!=2)return desc.name+" is not a stereo effect.";
-   p->prepareToPlay(d->getCurrentSampleRate(),d->getCurrentBufferSizeSamples());p->setStateInformation(state.getData(),(int)state.getSize());
+   p->prepareToPlay(prep.sampleRate,prep.blockSize);p->setStateInformation(state.getData(),(int)state.getSize());
    int latency=p->getLatencySamples();p->releaseResources();
    if(rack!=masterRack){if(latency<0||latency>maxRackLatency-rackLatency[rack])return desc.name+" exceeds the per-rack latency budget.";rackLatency[rack]+=latency;}visible[rack]=std::max(visible[rack],slot+1);
    pending[i].plugin=std::move(p);pending[i].bypass=x->getBoolAttribute("bypass",false);
