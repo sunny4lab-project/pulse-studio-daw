@@ -44,6 +44,12 @@ inline bool testOutputMixes(){
  d.broadcastGain=.2f;settle();if(!close(separated.getSample(0,samples-1),.02f)||!close(separated.getSample(2,samples-1),.01f))return pulse::testFailure(__FILE__,__LINE__);
  d.mute=true;settle();if(!close(separated.getSample(0,samples-1),0.f)||!close(separated.getSample(2,samples-1),.01f))return pulse::testFailure(__FILE__,__LINE__);
  d.broadcastMute=true;settle();if(!close(separated.getSample(2,samples-1),0.f))return pulse::testFailure(__FILE__,__LINE__);
+ // Independent raw hardware input: select input 2 while FOH remains on 1/2.
+ d.broadcastMute=false;d.broadcastSource=1;d.broadcastRightSource=-1;d.broadcastPan=0;d.broadcastGain=1;d.gain=.2f;d.mute=false;settle();
+ if(!close(separated.getSample(0,samples-1),.02f)||!close(separated.getSample(1,samples-1),.04f)||!close(separated.getSample(2,samples-1),.4f*std::sqrt(.5f)*.25f)||!close(separated.getSample(3,samples-1),.4f*std::sqrt(.5f)*.25f))return pulse::testFailure(__FILE__,__LINE__);
+ // Independent broadcast input must remain audible with no FOH input.
+ d.source=-1;settle();if(!close(separated.getSample(0,samples-1),0.f)||!close(separated.getSample(2,samples-1),.4f*std::sqrt(.5f)*.25f))return pulse::testFailure(__FILE__,__LINE__);
+ d.broadcastSource=-1;settle();if(!close(separated.getSample(2,samples-1),0.f))return pulse::testFailure(__FILE__,__LINE__);
  dual.disarmAux();settle();return close(separated.getSample(2,samples-1),0.f);
 }
 }
