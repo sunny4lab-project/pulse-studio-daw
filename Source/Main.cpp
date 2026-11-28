@@ -131,7 +131,7 @@ class App : public JUCEApplication {std::unique_ptr<DocumentWindow> window; Cons
  setApplicationReturnValue(ok?0:1);quit();});return;}struct W:DocumentWindow{W():DocumentWindow("Pulse Studio",Colour(0xff131a22),allButtons){setUsingNativeTitleBar(true);
   // Start as a normal, centred, resizable window. Leave room for the OS frame and taskbar even on small / high-DPI displays.
   auto* display=Desktop::getInstance().getDisplays().getPrimaryDisplay();
-  const auto area=display!=nullptr?display->userArea:Rectangle<int>(0,0,1280,800);
+  const auto area=display!=nullptr?display->userArea:juce::Rectangle<int>(0,0,1280,800);
   const int availableW=std::max(1,area.getWidth()-64),availableH=std::max(1,area.getHeight()-64);
   const int minW=std::min(864,availableW),minH=std::min(648,availableH);
   const int initialW=jlimit(minW,availableW,std::min(1100,area.getWidth()*4/5));
