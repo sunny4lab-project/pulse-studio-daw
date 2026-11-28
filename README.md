@@ -1,5 +1,18 @@
-# Pulse Studio Enterprise 0.27.0
+# Pulse Studio Enterprise 0.28.0
 Experimental native C++17 / JUCE 8.0.11 application. Not production-ready.
+
+## Expand, compact or hide the navigation sidebar (0.28.0)
+Use the small navigation toggle beside the Pulse Studio title in the top bar to
+cycle **Expanded → Compact → Hidden → Expanded**. Compact mode shows numbered
+workspace shortcuts with full names available as tooltips. Hidden mode gives
+the whole sidebar width back to the current mixer, timeline or workspace. The
+top-bar toggle always remains visible, even when the sidebar is hidden.
+**Ctrl+B** on Windows/Linux or **Cmd+B** on macOS toggles between the last
+visible sidebar width and fully hidden, including when a mix workspace is
+active. The preference is stored in the application's navigation.state file
+and restored at launch independently of the audio project; audio routing and
+engine processing are unaffected. When the sidebar is compact/hidden, use the
+top toggle to return to Expanded mode for sidebar Save/Load/FX actions.
 
 ## Per-channel color coding (0.27.0)
 Mixer channel headers and the Broadcast workspace use one shared channel color.
