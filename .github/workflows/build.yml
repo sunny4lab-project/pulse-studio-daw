@@ -1,0 +1,69 @@
+name: Pulse Studio build
+on: [push, pull_request, workflow_dispatch]
+concurrency:
+  group: pulse-studio-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libjack-jackd2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev libgl1-mesa-dev
+      - if: runner.os != 'Windows'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - if: runner.os == 'Windows'
+        run: cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - run: cmake --build build --config Release --parallel 2
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem build/PulseStudio_artefacts/Release -Filter 'Pulse Studio.exe' -Recurse | Select-Object -First 1
+          if (!$exe) { throw 'Executable missing' }
+          $p = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 8
+          $p.Refresh()
+          if ($p.HasExited) { throw "Startup failed: $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          $asioTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-asio' -Wait -PassThru
+          if ($asioTest.ExitCode -ne 0) { throw 'ASIO backend missing from Windows build' }
+          $stemTest = Start-Process -FilePath $exe.FullName -ArgumentList '--test-stems' -WorkingDirectory $PWD.Path -Wait -PassThru
+          if (Test-Path 'PulseStudio-native-tests.log') { Get-Content 'PulseStudio-native-tests.log' }
+          if ($stemTest.ExitCode -ne 0) { throw "Native regression suite failed (exit $($stemTest.ExitCode)); see named checks above." }
+          $preview = Start-Process -FilePath $exe.FullName -ArgumentList '--capture-ui' -WorkingDirectory $PWD.Path -Wait -PassThru
+          if ($preview.ExitCode -ne 0) { throw 'UI snapshot failed' }
+          foreach ($width in @(864,1360)) { foreach ($workspace in (0..14)) { $suffix = if ($workspace -eq 0) { "" } else { "-$workspace" }; if (!(Test-Path "PulseStudio-UI-$width$suffix.png")) { throw "Missing UI snapshot $width/$workspace" } } }
+          foreach ($mode in @("expanded","compact","hidden")) { if (!(Test-Path "PulseStudio-UI-Mixer-Sample-$mode.png")) { throw "Missing mixer layout sample $mode" } }
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          New-Item -ItemType Directory -Force installer-output | Out-Null
+          & $iscc "/DAppExe=$($exe.FullName)" "/O$($PWD.Path)\installer-output" packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulseStudio-Native-Test-Report
+          path: PulseStudio-native-tests.log
+          if-no-files-found: warn
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulseStudio-Windows-Installer
+          path: installer-output/PulseStudio-Setup.exe
+          if-no-files-found: error
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulseStudio-UI-Snapshots
+          path: PulseStudio-UI-*.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PulseStudio-${{ matrix.os }}
+          path: build/PulseStudio_artefacts/Release/
