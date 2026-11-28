@@ -93,7 +93,7 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
   status.setText((cancelled?juce::String("Stopped. "):juce::String("Finished. "))+juce::String(known.getNumTypes())+" discovered | "+juce::String(known.getBlacklistedFiles().size())+" skipped | "+juce::String(failures.size())+" failures. See plugin-scan-failures.txt.",juce::dontSendNotification);
  }
  void beginNext(){
-  while(nextCandidate<queue.size()){
+  int budget=16;while(nextCandidate<queue.size()&&budget-->0){
    auto item=queue[nextCandidate++];if(known.getBlacklistedFiles().contains(item.path))continue;
    // Existing VST3 entries with the same filesystem timestamp need no rescan.
    bool cached=false,changed=false;
@@ -105,7 +105,7 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
    if(!pedal().replaceWithText(currentPath+"\n")){failures.add("Cannot write scan recovery marker.");finish();return;}
    if(launch("scan",item))return;
    failures.add("Could not launch scan helper: "+currentPath);finish();return;
-  }finish();
+  }if(nextCandidate>=queue.size())finish();
  }
  void timerCallback() override{
   using namespace juce;
@@ -168,7 +168,7 @@ public:
   restore();updateList(true);status.setText(juce::String(known.getNumTypes())+" cached plugins. Scan installed effects or a specific bundle.",juce::dontSendNotification);setSize(740,520);
  }
  void shutdown(){if(scanning)finish(true);else stopTimer();}
- ~PluginBrowser()override{list.setModel(nullptr);shutdown();}
+ ~PluginBrowser()override{shutdown();list.setModel(nullptr);}
  void resized()override{
   auto r=getLocalBounds().reduced(10);heading.setBounds(r.removeFromTop(29));auto row=r.removeFromTop(30);search.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));manufacturer.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));category.setBounds(row.reduced(2));
   row=r.removeFromTop(32);int n=4;for(auto* b:{&scan,&file,&cancel,&clearBlacklist})b->setBounds(row.removeFromLeft(row.getWidth()/n--).reduced(2));

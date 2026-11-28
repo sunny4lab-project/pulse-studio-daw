@@ -27,4 +27,22 @@ inline bool runPluginScanRequest(const juce::File& request){
  auto dest=request.getSiblingFile("result.xml");TemporaryFile tmp(dest);
  return result.writeTo(tmp.getFile())&&tmp.getFile().getSize()<=32*1024*1024&&tmp.overwriteTargetFileWithTemporary();
 }
+inline bool testPluginScanHelper(){
+ using namespace juce;
+ auto dir=File::getSpecialLocation(File::tempDirectory).getNonexistentChildFile("pulse-scan-test","");
+ if(!dir.createDirectory().wasOk())return false;
+ struct Cleanup{File folder;~Cleanup(){folder.deleteRecursively();}} cleanup{dir};
+ auto req=dir.getChildFile("request.xml");auto result=dir.getChildFile("result.xml");
+ if(runPluginScanRequest(req))return false;
+ auto invoke=[&](const String& format,bool expectSuccess){
+  XmlElement xml("PluginScan");xml.setAttribute("action","discover");xml.setAttribute("format",format);
+  result.deleteFile();if(!xml.writeTo(req))return false;
+  ChildProcess child;if(!child.start(StringArray{File::getSpecialLocation(File::currentExecutableFile).getFullPathName(),"--scan-plugin-helper",req.getFullPathName()},0))return false;
+  if(!child.waitForProcessToFinish(30000)){child.kill();return false;}
+  if(!expectSuccess)return child.getExitCode()!=0&&!result.exists();
+  if(child.getExitCode()!=0)return false;
+  auto out=XmlDocument::parse(result);return out&&out->hasTagName("PluginScanResult");
+ };
+ return invoke("NoSuchPluginFormat",false)&&invoke("VST3",true);
+}
 }
