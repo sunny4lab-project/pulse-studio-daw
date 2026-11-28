@@ -1,19 +1,46 @@
 #pragma once
 #include "AudioEngine.h"
+#include "UI/EnterpriseTheme.h"
 class MonitorPanel : public Component {
- Engine& e;
+ Engine& e;bool compact=true;
+ TextButton collapse{"Expand"};
+ static String dbText(float p){return String(Decibels::gainToDecibels(p,-100.f),1);}
+ static void horizontalMeter(Graphics& g,Rectangle<int> bar,float p){
+  if(bar.isEmpty())return;float v=jlimit(0.f,1.f,(Decibels::gainToDecibels(p,-60.f)+60.f)/60.f);
+  g.setColour(Colour(0xff243445));g.fillRoundedRectangle(bar.toFloat(),2);
+  if(v>0){g.setColour(p>=.99f?Colours::orange:PulseTheme::cyan);g.fillRoundedRectangle(bar.withWidth((int)(bar.getWidth()*v)).toFloat(),2);}
+ }
 public:
  int mixMode=1;
- std::array<String,4> names{"Drums","Instruments","Vocals","Other"};
- explicit MonitorPanel(Engine& engine):e(engine){}
- void paint(Graphics& g) override {
-  auto r=getLocalBounds().reduced(3);
-  auto card=[&](int h,const String& title){auto q=r.removeFromTop(h).reduced(0,3);g.setColour(Colour(0xff0c1623));g.fillRoundedRectangle(q.toFloat(),6);g.setColour(Colour(0xff26394a));g.drawRoundedRectangle(q.toFloat(),6,1);auto inner=q.reduced(8);g.setFont(Font(12.f,Font::bold));g.setColour(Colour(0xffb6c9d9));g.drawText(title,inner.removeFromTop(20),Justification::centredLeft);return inner;};
-  auto meter=[&](Rectangle<int> bar,float p){float v=jlimit(0.f,1.f,(Decibels::gainToDecibels(p,-60.f)+60.f)/60.f);g.setColour(Colour(0xff243445));g.fillRoundedRectangle(bar.toFloat(),3);if(v>0){auto fill=bar.withWidth((int)(bar.getWidth()*v));g.setGradientFill(ColourGradient(Colour(0xff16c886),bar.getX(),0.f,Colour(0xff29d6db),bar.getRight(),0.f,false));g.fillRoundedRectangle(fill.toFloat(),3);}};
-  auto q=card(145,"MIX BUSES");g.setFont(11.f);
-  for(int i=0;i<4;++i){auto row=q.removeFromTop(21);g.setColour(Colour(0xffd3dfe8));g.drawFittedText(names[i],row.removeFromLeft(std::min(74,row.getWidth()/2)),Justification::centredLeft,1);meter(row.reduced(3,6),e.busPeak[i].load());}
-  q=card(104,"AI ENGINEER");g.setFont(11.f);g.setColour(Colour(0xff31cfd0));g.drawFittedText(mixMode==1?"Manual control":mixMode==2?"Assisted level matching":"Automatic level matching",q.removeFromTop(20),Justification::centredLeft,1);g.setColour(Colour(0xffa9bac8));g.drawFittedText(e.enabled.load()?"Live inputs active":"Live inputs disabled",q.removeFromTop(18),Justification::centredLeft,1);g.drawFittedText("Feedback analysis: not available",q.removeFromTop(18),Justification::centredLeft,1);
-  q=card(116,"OUTPUT MONITOR");float db=Decibels::gainToDecibels(e.peak.load(),-100.f);g.setColour(db>=0?Colours::orange:Colour(0xff31d5d5));g.setFont(Font(26.f,Font::bold));g.drawText(String(db,1)+" dBFS",q.removeFromTop(36),Justification::centredLeft);meter(q.removeFromTop(12),e.peak.load());g.setFont(10.f);g.setColour(Colour(0xff9eb4c5));g.drawText("Sample peak | LUFS pending",q.removeFromTop(18),Justification::centredLeft);
-  q=card(124,"SYSTEM STATUS");g.setFont(11.f);g.setColour(Colour(0xffd3dfe8));auto line=[&](const String& s){g.drawFittedText(s,q.removeFromTop(18),Justification::centredLeft,1);};auto* d=e.devices.getCurrentAudioDevice();line(d?"Audio device connected":"Audio device disconnected");line("CPU  "+String(e.devices.getCpuUsage()*100,1)+"%");line(d?String(d->getCurrentSampleRate()/1000,1)+" kHz / "+String(d->getCurrentBufferSizeSamples())+" samples":"Sample rate / buffer: --");line("Recording write errors: "+String((int)e.missedWrites.load()));
+ std::array<String,B> names{};
+ std::function<void()> onToggle;
+ explicit MonitorPanel(Engine& engine):e(engine){
+  for(int b=0;b<B;++b)names[b]="Bus "+String(b+1);
+  addAndMakeVisible(collapse);collapse.onClick=[this]{if(onToggle)onToggle();};setCompact(true);
+ }
+ void setCompact(bool value){compact=value;collapse.setButtonText(compact?String("<"):String("Collapse >"));collapse.setTooltip(compact?"Expand monitoring panel":"Collapse monitoring panel");resized();repaint();}
+ void resized()override{auto r=getLocalBounds().reduced(5);collapse.setBounds(r.removeFromTop(24).removeFromRight(compact?r.getWidth():84));}
+ void paint(Graphics& g)override{
+  auto bounds=getLocalBounds();g.setColour(PulseTheme::panel);g.fillRoundedRectangle(bounds.toFloat(),5);g.setColour(PulseTheme::border);g.drawRoundedRectangle(bounds.toFloat().reduced(.5f),5,1);
+  auto r=bounds.reduced(compact?5:9,5);
+  auto line=[&](const String& s,int size,Colour c,int height,bool bold=false){auto q=r.removeFromTop(std::min(height,r.getHeight()));if(q.isEmpty())return;g.setColour(c);g.setFont(PulseTheme::font((float)size,bold));g.drawFittedText(s,q,compact?Justification::centred:Justification::centredLeft,1,.85f);};
+  float peak=e.peak.load();float lufs=e.shortLufs.load();
+  if(compact){
+   r.removeFromTop(30);line("OUT",10,PulseTheme::muted,16,true);
+   int meterHeight=std::min(146,std::max(0,r.getHeight()-112));auto meter=r.removeFromTop(meterHeight).withSizeKeepingCentre(10,meterHeight); 
+   if(!meter.isEmpty()){g.setColour(Colour(0xff243445));g.fillRoundedRectangle(meter.toFloat(),3);float v=jlimit(0.f,1.f,(Decibels::gainToDecibels(peak,-60.f)+60.f)/60.f);g.setColour(peak>=.99f?Colours::orange:PulseTheme::cyan);if(v>0)g.fillRoundedRectangle(meter.removeFromBottom((int)(meter.getHeight()*v)).toFloat(),3);}
+   line(peak>0?dbText(peak):String("-inf"),11,PulseTheme::text,17,true);line("dBFS",9,PulseTheme::muted,13);
+   r.removeFromTop(5);line(mixMode==1?"MAN":mixMode==2?"AST":mixMode==4?"HYB":"AUTO",10,PulseTheme::cyan,19,true);line(e.enabled.load()?"LIVE":"OFF",10,e.enabled.load()?Colour(0xff53d69a):PulseTheme::muted,18,true);return;
+  }
+  line("MONITOR",12,PulseTheme::text,24,true);r.removeFromTop(5);
+  line("OUTPUT",10,PulseTheme::muted,16,true);
+  line(dbText(peak)+" dBFS",18,peak>=.99f?Colours::orange:PulseTheme::cyan,25,true);
+  horizontalMeter(g,r.removeFromTop(9).reduced(0,1),peak);line(lufs>-99?String(lufs,1)+" LUFS short-term":"LUFS — waiting for audio",11,PulseTheme::muted,19);
+  r.removeFromTop(5);line("MIX BUSES",10,PulseTheme::muted,18,true);
+  int rowHeight=jlimit(13,19,(r.getHeight()-58)/B);
+  for(int i=0;i<B&&r.getHeight()>=rowHeight;++i){auto row=r.removeFromTop(rowHeight);auto label=row.removeFromLeft(juce::jlimit(65,100,row.getWidth()/2));g.setColour(PulseTheme::text);g.setFont(PulseTheme::font(11));g.drawFittedText(names[i],label,Justification::centredLeft,1,.8f);auto number=row.removeFromRight(32);horizontalMeter(g,row.reduced(4,5),e.busPeak[i].load());g.setColour(PulseTheme::muted);g.setFont(PulseTheme::font(9));g.drawFittedText(dbText(e.busPeak[i].load()),number,Justification::centredRight,1,.8f);}
+  r.removeFromTop(5);line("AI ENGINEER",10,PulseTheme::muted,17,true);
+  line(String(mixMode==1?"Manual":mixMode==2?"Assisted":mixMode==4?"Hybrid":"Autonomous")+(e.enabled.load()?" / Live":" / Live off"),12,PulseTheme::cyan,20,true);
+  line("Feedback analysis unavailable",10,PulseTheme::muted,16);
  }
 };
