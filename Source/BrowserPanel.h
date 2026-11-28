@@ -10,7 +10,7 @@ class BrowserPanel : public Component, private FileBrowserListener {
 public:
  std::function<void(const File&)> onOpen;
  BrowserPanel(){
-  title.setText("FILE BROWSER",dontSendNotification);title.setFont(Font(11.f,Font::bold));
+  title.setText("SOUND & ASSET BROWSER",dontSendNotification);title.setFont(Font(11.f,Font::bold));
   location.setFont(Font(10.f));
   for(auto* x:std::array<Component*,5>{&title,&location,&up,&home,&list})addAndMakeVisible(x);
   list.addListener(this);thread.startThread();
@@ -24,5 +24,6 @@ public:
  void fileClicked(const File&,const MouseEvent&) override {}
  void fileDoubleClicked(const File& f) override {if(f.isDirectory())setFolder(f);else if(onOpen)onOpen(f);}
  void browserRootChanged(const File&) override {}
+ void paint(Graphics& g) override{g.fillAll(Colour(0xff0c131c));g.setColour(Colour(0xff233447));g.drawVerticalLine(getWidth()-1,0,(float)getHeight());}
  void resized() override {auto r=getLocalBounds().reduced(4);title.setBounds(r.removeFromTop(18));location.setBounds(r.removeFromTop(18));auto row=r.removeFromTop(22);up.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(1));home.setBounds(row.reduced(1));list.setBounds(r);}
 };

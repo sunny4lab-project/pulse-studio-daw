@@ -33,7 +33,7 @@ class BroadcastPage : public juce::Component {
   }
   void setAutomatic(float value){engine.ch[index].broadcastGain=value;level.setValue(juce::Decibels::gainToDecibels(value,-60.f),juce::dontSendNotification);}
   void mouseDown(const juce::MouseEvent& ev)override{if(ev.mods.isPopupMenu())openChannelColourMenu(*this,engine.ch[index]);}
-  void paint(juce::Graphics& g)override{g.setColour(getChannelColour(engine.ch[index]));g.fillRoundedRectangle(juce::Rectangle<float>(1.f,5.f,4.f,(float)getHeight()-10.f),2.f);auto meter=juce::Rectangle<float>((float)getWidth()-15.f,105.f,7.f,(float)std::max(0,getHeight()-166));g.setColour(juce::Colour(0xff080c11));g.fillRect(meter);const float db=juce::Decibels::gainToDecibels(engine.ch[index].broadcastPeak.load(),-60.f);g.setColour(juce::Colour(0xff14e8c6));g.fillRect(meter.withTop(meter.getBottom()-meter.getHeight()*juce::jlimit(0.f,1.f,(db+60.f)/60.f)));}
+  void paint(juce::Graphics& g)override{g.setColour(juce::Colour(0xff111923));g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1),5);g.setColour(juce::Colour(0xff233447));g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1),5,1);g.setColour(getChannelColour(engine.ch[index]));g.fillRoundedRectangle(juce::Rectangle<float>(1.f,5.f,4.f,(float)getHeight()-10.f),2.f);auto meter=juce::Rectangle<float>((float)getWidth()-15.f,105.f,7.f,(float)std::max(0,getHeight()-166));g.setColour(juce::Colour(0xff080c11));g.fillRect(meter);const float db=juce::Decibels::gainToDecibels(engine.ch[index].broadcastPeak.load(),-60.f);g.setColour(juce::Colour(0xff14e8c6));g.fillRect(meter.withTop(meter.getBottom()-meter.getHeight()*juce::jlimit(0.f,1.f,(db+60.f)/60.f)));}
   void refresh(){auto& c=engine.ch[index];title.setColour(juce::Label::textColourId,getChannelColour(c));if(!level.isMouseButtonDown())level.setValue(juce::Decibels::gainToDecibels(c.broadcastGain.load(),-60.f),juce::dontSendNotification);
    if(!pan.isMouseButtonDown())pan.setValue(c.broadcastPan.load(),juce::dontSendNotification);const int source=c.source.load(),right=c.rightSource.load();input.setText(source<0?juce::String("Unassigned"):("IN "+juce::String(source+1)+(right>=0?(" / "+juce::String(right+1)):juce::String())),juce::dontSendNotification);repaint();
    mute.setToggleState(c.broadcastMute.load(),juce::dontSendNotification);lock.setToggleState(c.broadcastLock.load(),juce::dontSendNotification);
@@ -90,10 +90,9 @@ public:
   arm.setButtonText(armed?"Disarm broadcast":"Arm broadcast");arm.setEnabled(armed||(!e.enabled.load()&&e.auxAvailable[0].load()));
   for(auto* row:rows)row->refresh();
  }
- void resized()override{auto r=getLocalBounds().reduced(3);auto top=r.removeFromTop(67);route.setBounds(top.removeFromLeft(top.getWidth()/2));loudness.setBounds(top);
+ void resized()override{auto r=getLocalBounds().reduced(4);auto side=r.removeFromRight(std::min(218,r.getWidth()/3));route.setBounds(side.removeFromTop(86));loudness.setBounds(side.removeFromTop(86));output.setBounds(side.removeFromTop(65));note.setBounds(side.removeFromTop(std::min(90,side.getHeight())));history.setBounds(side);
   auto c=r.removeFromTop(29);mode.setBounds(c.removeFromLeft(108).reduced(1));profile.setBounds(c.removeFromLeft(110).reduced(1));enable.setBounds(c.removeFromLeft(std::min(180,c.getWidth()/2)).reduced(1));arm.setBounds(c.reduced(1));
-  c=r.removeFromTop(28);slot.setBounds(c.removeFromLeft(96).reduced(1));save.setBounds(c.removeFromLeft(105).reduced(1));recall.setBounds(c.removeFromLeft(105).reduced(1));output.setBounds(c.reduced(1));
-  note.setBounds(r.removeFromTop(32));history.setBounds(r.removeFromBottom(std::min(65,r.getHeight()/4)));viewport.setBounds(r);
-  const int stripWidth=104;const int stripHeight=std::max(255,viewport.getHeight()-18);bank.setSize(std::max(viewport.getWidth()-12,rows.size()*stripWidth),stripHeight);for(int i=0;i<rows.size();++i)rows[i]->setBounds(i*stripWidth,0,stripWidth,stripHeight);
+  c=r.removeFromTop(28);slot.setBounds(c.removeFromLeft(96).reduced(1));save.setBounds(c.removeFromLeft(105).reduced(1));recall.setBounds(c.removeFromLeft(105).reduced(1));viewport.setBounds(r);
+  const int stripWidth=88;const int stripHeight=std::max(255,viewport.getHeight()-18);bank.setSize(std::max(viewport.getWidth()-12,rows.size()*stripWidth),stripHeight);for(int i=0;i<rows.size();++i)rows[i]->setBounds(i*stripWidth,0,stripWidth,stripHeight);
  }
 };
