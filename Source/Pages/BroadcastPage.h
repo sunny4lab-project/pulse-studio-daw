@@ -11,18 +11,20 @@
 class BroadcastPage : public juce::Component {
  struct ChannelRow : juce::Component {
   Engine& engine;juce::ComboBox& mode;int index;
-  juce::Label title,peak;juce::Slider level;juce::TextButton mute{"Mute"},lock{"Lock"};
+  juce::Label title,peak,input;juce::Slider level,pan;juce::TextButton mute{"Mute"},lock{"Lock"};
   std::function<void(const juce::String&)> onChange;
   float anchor=0,envelope=0;bool manualHold=false;
   ChannelRow(Engine& e,juce::ComboBox& m,int i,std::function<void(const juce::String&)> callback):engine(e),mode(m),index(i),onChange(std::move(callback)){
-   for(auto* c:std::array<juce::Component*,5>{&title,&peak,&level,&mute,&lock})addAndMakeVisible(c);
+   for(auto* c:std::array<juce::Component*,7>{&title,&peak,&input,&level,&pan,&mute,&lock})addAndMakeVisible(c);
    title.setText("CH "+juce::String(i+1),juce::dontSendNotification);title.setFont(juce::Font(12.f,juce::Font::bold));title.addMouseListener(this,false);peak.setFont(juce::Font(10.f));
-   level.setSliderStyle(juce::Slider::LinearHorizontal);level.setRange(-60,3.52,.1);level.setTextValueSuffix(" dB");
-   level.setTextBoxStyle(juce::Slider::TextBoxRight,false,57,20);
+   title.setJustificationType(juce::Justification::centred);input.setFont(juce::Font(10.f));input.setJustificationType(juce::Justification::centred);peak.setJustificationType(juce::Justification::centred);
+   level.setSliderStyle(juce::Slider::LinearVertical);level.setRange(-60,3.52,.1);level.setTextValueSuffix(" dB");
+   level.setTextBoxStyle(juce::Slider::TextBoxBelow,false,74,20);
    anchor=e.ch[i].broadcastGain.load();level.setValue(juce::Decibels::gainToDecibels(anchor,-60.f),juce::dontSendNotification);
    level.onValueChange=[this]{auto& c=engine.ch[index];float next=juce::Decibels::decibelsToGain((float)level.getValue(),-60.f);c.broadcastGain=next;anchor=next;
     if(mode.getSelectedId()==3||mode.getSelectedId()==4){c.broadcastLock=true;lock.setToggleState(true,juce::dontSendNotification);manualHold=true;}
     if(onChange)onChange("CH "+juce::String(index+1)+" manual fader "+juce::String(level.getValue(),1)+" dB");};
+   pan.setSliderStyle(juce::Slider::LinearHorizontal);pan.setRange(-1.,1.,.01);pan.setTextBoxStyle(juce::Slider::TextBoxBelow,false,74,18);pan.setDoubleClickReturnValue(true,0.);pan.setValue(e.ch[i].broadcastPan.load(),juce::dontSendNotification);pan.setTooltip("Independent broadcast pan (centre = 0)");pan.onValueChange=[this]{engine.ch[index].broadcastPan=(float)pan.getValue();};
    for(auto* b:{&mute,&lock})b->setClickingTogglesState(true);
    mute.setToggleState(e.ch[i].broadcastMute.load(),juce::dontSendNotification);
    lock.setToggleState(e.ch[i].broadcastLock.load(),juce::dontSendNotification);
@@ -31,11 +33,12 @@ class BroadcastPage : public juce::Component {
   }
   void setAutomatic(float value){engine.ch[index].broadcastGain=value;level.setValue(juce::Decibels::gainToDecibels(value,-60.f),juce::dontSendNotification);}
   void mouseDown(const juce::MouseEvent& ev)override{if(ev.mods.isPopupMenu())openChannelColourMenu(*this,engine.ch[index]);}
-  void paint(juce::Graphics& g)override{g.setColour(getChannelColour(engine.ch[index]));g.fillRoundedRectangle(juce::Rectangle<float>(1.f,5.f,4.f,(float)getHeight()-10.f),2.f);}
+  void paint(juce::Graphics& g)override{g.setColour(getChannelColour(engine.ch[index]));g.fillRoundedRectangle(juce::Rectangle<float>(1.f,5.f,4.f,(float)getHeight()-10.f),2.f);auto meter=juce::Rectangle<float>((float)getWidth()-15.f,105.f,7.f,(float)std::max(0,getHeight()-166));g.setColour(juce::Colour(0xff080c11));g.fillRect(meter);const float db=juce::Decibels::gainToDecibels(engine.ch[index].broadcastPeak.load(),-60.f);g.setColour(juce::Colour(0xff14e8c6));g.fillRect(meter.withTop(meter.getBottom()-meter.getHeight()*juce::jlimit(0.f,1.f,(db+60.f)/60.f)));}
   void refresh(){auto& c=engine.ch[index];title.setColour(juce::Label::textColourId,getChannelColour(c));if(!level.isMouseButtonDown())level.setValue(juce::Decibels::gainToDecibels(c.broadcastGain.load(),-60.f),juce::dontSendNotification);
+   if(!pan.isMouseButtonDown())pan.setValue(c.broadcastPan.load(),juce::dontSendNotification);const int source=c.source.load(),right=c.rightSource.load();input.setText(source<0?juce::String("Unassigned"):("IN "+juce::String(source+1)+(right>=0?(" / "+juce::String(right+1)):juce::String())),juce::dontSendNotification);repaint();
    mute.setToggleState(c.broadcastMute.load(),juce::dontSendNotification);lock.setToggleState(c.broadcastLock.load(),juce::dontSendNotification);
    peak.setText(manualHold?"Manual hold":juce::String(juce::Decibels::gainToDecibels(c.broadcastPeak.load(),-100.f),0)+" dBFS",juce::dontSendNotification);}
-  void resized()override{auto r=getLocalBounds().reduced(2);title.setBounds(r.removeFromLeft(55));peak.setBounds(r.removeFromRight(78));lock.setBounds(r.removeFromRight(52).reduced(1));mute.setBounds(r.removeFromRight(52).reduced(1));level.setBounds(r);}
+  void resized()override{auto r=getLocalBounds().reduced(7,5);title.setBounds(r.removeFromTop(26));input.setBounds(r.removeFromTop(22));pan.setBounds(r.removeFromTop(46));auto buttons=r.removeFromBottom(25);mute.setBounds(buttons.removeFromLeft(buttons.getWidth()/2).reduced(1));lock.setBounds(buttons.reduced(1));peak.setBounds(r.removeFromBottom(22));r.removeFromRight(13);level.setBounds(r);}
  };
  struct Snapshot {std::vector<float> gain,pan;std::vector<bool> mute,lock;int mode=1,profile=1;bool saved=false;};
  Engine& e;EnterpriseCard route,loudness;MeterWidget output;
@@ -91,6 +94,6 @@ public:
   auto c=r.removeFromTop(29);mode.setBounds(c.removeFromLeft(108).reduced(1));profile.setBounds(c.removeFromLeft(110).reduced(1));enable.setBounds(c.removeFromLeft(std::min(180,c.getWidth()/2)).reduced(1));arm.setBounds(c.reduced(1));
   c=r.removeFromTop(28);slot.setBounds(c.removeFromLeft(96).reduced(1));save.setBounds(c.removeFromLeft(105).reduced(1));recall.setBounds(c.removeFromLeft(105).reduced(1));output.setBounds(c.reduced(1));
   note.setBounds(r.removeFromTop(32));history.setBounds(r.removeFromBottom(std::min(65,r.getHeight()/4)));viewport.setBounds(r);
-  bank.setSize(std::max(300,viewport.getWidth()-12),std::max(1,rows.size())*34);for(int i=0;i<rows.size();++i)rows[i]->setBounds(0,i*34,bank.getWidth(),34);
+  const int stripWidth=104;const int stripHeight=std::max(255,viewport.getHeight()-18);bank.setSize(std::max(viewport.getWidth()-12,rows.size()*stripWidth),stripHeight);for(int i=0;i<rows.size();++i)rows[i]->setBounds(i*stripWidth,0,stripWidth,stripHeight);
  }
 };
