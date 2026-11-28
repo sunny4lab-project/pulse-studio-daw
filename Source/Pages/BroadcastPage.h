@@ -41,7 +41,7 @@ class BroadcastPage : public juce::Component {
   void resized()override{auto r=getLocalBounds().reduced(7,5);title.setBounds(r.removeFromTop(26));input.setBounds(r.removeFromTop(22));pan.setBounds(r.removeFromTop(46));auto buttons=r.removeFromBottom(25);mute.setBounds(buttons.removeFromLeft(buttons.getWidth()/2).reduced(1));lock.setBounds(buttons.reduced(1));peak.setBounds(r.removeFromBottom(22));r.removeFromRight(13);level.setBounds(r);}
  };
  struct Snapshot {std::vector<float> gain,pan;std::vector<bool> mute,lock;int mode=1,profile=1;bool saved=false;};
- Engine& e;EnterpriseCard route,loudness;MeterWidget output;
+ Engine& e;EnterpriseCard route,loudness;MeterWidget output;juce::ComboBox outputPair;juce::StringArray outputNames;juce::Slider masterGain;juce::Label peakInfo;juce::TextButton masterMute{"Mute master"};float restoreGain=1.f;
  juce::ComboBox mode,profile,slot;juce::TextButton enable{"Enable broadcast feed"},arm{"Arm broadcast"},save{"Save scene"},recall{"Recall scene"};
  juce::Label note;juce::Component bank;juce::Viewport viewport;juce::OwnedArray<ChannelRow> rows;
  juce::TextEditor history;juce::StringArray changes;std::array<Snapshot,4> scenes;int ticks=0,speechHold=0;
@@ -59,7 +59,7 @@ class BroadcastPage : public juce::Component {
 public:
  explicit BroadcastPage(Engine& engine):e(engine){
   for(auto* c:std::array<juce::Component*,10>{&route,&loudness,&output,&mode,&profile,&slot,&enable,&arm,&save,&recall})addAndMakeVisible(c);
-  addAndMakeVisible(note);addAndMakeVisible(viewport);addAndMakeVisible(history);viewport.setViewedComponent(&bank,false);
+  addAndMakeVisible(outputPair);addAndMakeVisible(masterGain);addAndMakeVisible(peakInfo);addAndMakeVisible(masterMute);outputPair.setTooltip("Broadcast hardware stereo pair; routing changes require LIVE off");outputPair.onChange=[this]{if(!e.setOutputPair(1,outputPair.getSelectedId()-2))log("Output unavailable or already assigned; stop live first");refresh();};masterGain.setSliderStyle(juce::Slider::LinearHorizontal);masterGain.setRange(-60,0,.1);masterGain.setTextValueSuffix(" dB");masterGain.setTextBoxStyle(juce::Slider::TextBoxRight,false,60,20);masterGain.onValueChange=[this]{e.auxGain[0]=juce::Decibels::decibelsToGain((float)masterGain.getValue(),-60.f);};masterMute.onClick=[this]{if(e.auxGain[0].load()>.00001f){restoreGain=e.auxGain[0].load();e.auxGain[0]=0.f;}else e.auxGain[0]=restoreGain;refresh();};peakInfo.setFont(juce::Font(10.f));peakInfo.setJustificationType(juce::Justification::topLeft);addAndMakeVisible(note);addAndMakeVisible(viewport);addAndMakeVisible(history);viewport.setViewedComponent(&bank,false);
   mode.addItem("Manual",1);mode.addItem("Assisted",2);mode.addItem("Autonomous",3);mode.addItem("Hybrid",4);mode.setSelectedId(1,juce::dontSendNotification);
   profile.addItem("Balanced",1);profile.addItem("Praise",2);profile.addItem("Worship",3);profile.addItem("Sermon",4);profile.setSelectedId(1,juce::dontSendNotification);
   for(int i=1;i<=4;++i)slot.addItem("Scene "+juce::String(i),i);slot.setSelectedId(1,juce::dontSendNotification);
@@ -84,13 +84,16 @@ public:
  }
  void refresh(){ensureRows();auto* device=e.devices.getCurrentAudioDevice();bool online=device&&device->isPlaying();int pair=e.auxPair[0].load();bool armed=e.auxArmed[0].load();
   route.set("BROADCAST AUX 1",pair>=0?"Outputs "+juce::String(2*pair+1)+"-"+juce::String(2*pair+2):"Unrouted",armed?"Armed / independent of FOH":"Disarmed — route and arm first");
-  float integrated=e.integratedLufs.load();loudness.set("HOUSE MASTER LUFS",online&&integrated>-99?juce::String(integrated,1)+" LUFS":"--","Broadcast has separate faders; loudness meter is FOH only");
+  bool active=online&&armed&&e.enabled.load()&&e.broadcastDirectEnabled.load()&&e.auxAvailable[0].load()&&!e.deviceFault.load()&&!e.alignmentFault.load();
+  float integrated=e.broadcastIntegratedLufs.load(),shortTerm=e.broadcastShortLufs.load();loudness.set("BROADCAST SHORT-TERM",active&&shortTerm>-99?juce::String(shortTerm,1)+" LUFS":"--",active&&integrated>-99?"Integrated "+juce::String(integrated,1)+" LUFS":"Post-output / waiting for signal");
+  auto db=[](float v){return juce::String(juce::Decibels::gainToDecibels(v,-100.f),1);};peakInfo.setText(active?"L "+db(e.broadcastLeftPeak.load())+" / R "+db(e.broadcastRightPeak.load())+" dBFS\nPeak estimate "+db(e.broadcastTruePeakEstimate.load())+" dBTP":"L / R offline\nPeak estimate unavailable",juce::dontSendNotification);
+  auto names=e.activeChannelNames(false);if(names!=outputNames||outputPair.getNumItems()==0){outputNames=names;outputPair.clear(juce::dontSendNotification);outputPair.addItem("Disabled",1);for(int i=0;i<names.size()/2;++i)outputPair.addItem(names[2*i]+" / "+names[2*i+1],i+2);}if(pair>=0&&outputPair.indexOfItemId(pair+2)<0)outputPair.addItem("Pair "+juce::String(pair+1)+" (unavailable)",pair+2);outputPair.setSelectedId(pair+2,juce::dontSendNotification);outputPair.setEnabled(e.canEditInserts());if(!masterGain.isMouseButtonDown())masterGain.setValue(juce::Decibels::gainToDecibels(e.auxGain[0].load(),-60.f),juce::dontSendNotification);masterMute.setButtonText(e.auxGain[0].load()<=.00001f?"Restore master":"Mute master");
   output.setPeak(e.auxPeak[0].load(),"Broadcast sample peak");
   enable.setButtonText(e.broadcastDirectEnabled.load()?"Disable broadcast feed":"Enable broadcast feed");enable.setEnabled(e.canEditInserts());
   arm.setButtonText(armed?"Disarm broadcast":"Arm broadcast");arm.setEnabled(armed||(!e.enabled.load()&&e.auxAvailable[0].load()));
-  for(auto* row:rows)row->refresh();
+  if(isShowing())for(auto* row:rows)if(row->getBounds().intersects(viewport.getViewArea()))row->refresh();
  }
- void resized()override{auto r=getLocalBounds().reduced(4);auto side=r.removeFromRight(std::min(218,r.getWidth()/3));route.setBounds(side.removeFromTop(86));loudness.setBounds(side.removeFromTop(86));output.setBounds(side.removeFromTop(65));note.setBounds(side.removeFromTop(std::min(90,side.getHeight())));history.setBounds(side);
+ void resized()override{auto r=getLocalBounds().reduced(4);auto side=r.removeFromRight(std::min(218,r.getWidth()/3));route.setBounds(side.removeFromTop(86));loudness.setBounds(side.removeFromTop(86));outputPair.setBounds(side.removeFromTop(26).reduced(2));masterGain.setBounds(side.removeFromTop(28).reduced(2));masterMute.setBounds(side.removeFromTop(24).reduced(2));output.setBounds(side.removeFromTop(60));peakInfo.setBounds(side.removeFromTop(38).reduced(2));note.setBounds(side.removeFromTop(std::min(65,side.getHeight())));history.setBounds(side);
   auto c=r.removeFromTop(29);mode.setBounds(c.removeFromLeft(108).reduced(1));profile.setBounds(c.removeFromLeft(110).reduced(1));enable.setBounds(c.removeFromLeft(std::min(180,c.getWidth()/2)).reduced(1));arm.setBounds(c.reduced(1));
   c=r.removeFromTop(28);slot.setBounds(c.removeFromLeft(96).reduced(1));save.setBounds(c.removeFromLeft(105).reduced(1));recall.setBounds(c.removeFromLeft(105).reduced(1));viewport.setBounds(r);
   const int stripWidth=88;const int stripHeight=std::max(255,viewport.getHeight()-18);bank.setSize(std::max(viewport.getWidth()-12,rows.size()*stripWidth),stripHeight);for(int i=0;i<rows.size();++i)rows[i]->setBounds(i*stripWidth,0,stripWidth,stripHeight);
