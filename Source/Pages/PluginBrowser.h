@@ -1,8 +1,9 @@
 #pragma once
 #include "../AudioEngine.h"
 #include "../UI/EnterpriseTheme.h"
-// User-initiated, incremental scans on the message thread only while idle.
-// JUCE's dead-man file preserves a failed scan identifier across restarts.
+#include "../PluginScanHelper.h"
+#include <vector>
+// The UI polls child processes; third-party plugin discovery never executes in the host.
 class PluginBrowser final : public juce::Component, private juce::ListBoxModel, private juce::Timer {
  Engine& e;
  juce::KnownPluginList known;
@@ -14,8 +15,12 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
  juce::ListBox list{"Installed effects",this};
  juce::TextButton scan{"Scan installed"},file{"Scan file"},cancel{"Stop scan"},load{"Load selected"},favorite{"Favorite"},onlyFavorites{"Favorites only"},clearBlacklist{"Retry skipped"};
  std::unique_ptr<juce::FileChooser> chooser;
- std::unique_ptr<juce::PluginDirectoryScanner> scanner;
- int formatIndex=0;bool scanning=false,allFormats=false,instruments=false;
+ struct Candidate{juce::String format,path;};
+ std::vector<Candidate> queue;size_t nextCandidate=0;
+ std::unique_ptr<juce::ChildProcess> child;juce::File requestDir;
+ juce::String currentPath;double startedAt=0;bool discovering=false,scanning=false,instruments=false;
+ inline static PluginBrowser* scanOwner=nullptr;
+ static constexpr double scanTimeoutMs=90000,discoveryTimeoutMs=120000;
  std::function<void(const juce::PluginDescription&)> onLoad;
  static juce::File directory(){return Engine::deviceSettingsFile().getParentDirectory();}
  static juce::File cache(){return directory().getChildFile("plugin-library.xml");}
@@ -24,14 +29,14 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
   if(!directory().createDirectory().wasOk())return;
   juce::XmlElement root("PulsePluginLibrary");root.addChildElement(known.createXml().release());
   for(auto& f:favorites)root.createNewChildElement("Favorite")->setAttribute("id",f);
-  root.writeTo(cache());
+  juce::TemporaryFile temp(cache());if(root.writeTo(temp.getFile()))temp.overwriteTargetFileWithTemporary();
  }
  void restore(){
   if(cache().existsAsFile()&&cache().getSize()<32*1024*1024)if(auto xml=juce::XmlDocument::parse(cache())){
    if(auto* x=xml->getChildByName("KNOWNPLUGINS"))known.recreateFromXml(*x);
    for(auto* x:xml->getChildWithTagNameIterator("Favorite"))favorites.addIfNotAlreadyThere(x->getStringAttribute("id"));
   }
-  juce::PluginDirectoryScanner::applyBlacklistingsFromDeadMansPedal(known,pedal());
+  if(scanOwner==nullptr){juce::PluginDirectoryScanner::applyBlacklistingsFromDeadMansPedal(known,pedal());persist();pedal().deleteFile();}
  }
  static void populate(juce::ComboBox& box,juce::StringArray values,const juce::String& all){
   auto current=box.getText();values.removeEmptyStrings();values.removeDuplicates(true);values.sort(true);
@@ -52,7 +57,7 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
   struct Compare{int compareElements(const juce::PluginDescription& a,const juce::PluginDescription& b)const{return (a.manufacturerName+" "+a.name).compareNatural(b.manufacturerName+" "+b.name);}} compare;
   filtered.sort(compare);list.updateContent();list.repaint();updateButtons();
  }
- void updateButtons(){bool idle=!scanning&&e.canEditInserts(),selected=juce::isPositiveAndBelow(list.getSelectedRow(),filtered.size());scan.setEnabled(idle);file.setEnabled(idle);clearBlacklist.setEnabled(idle);cancel.setEnabled(scanning);load.setEnabled(idle&&selected);favorite.setEnabled(selected);}
+ void updateButtons(){bool idle=!scanning&&scanOwner==nullptr&&e.canEditInserts(),selected=juce::isPositiveAndBelow(list.getSelectedRow(),filtered.size());scan.setEnabled(idle);file.setEnabled(idle);clearBlacklist.setEnabled(idle);cancel.setEnabled(scanning);load.setEnabled(idle&&selected);favorite.setEnabled(selected);}
  int getNumRows() override{return filtered.size();}
  void paintListBoxItem(int row,juce::Graphics& g,int w,int h,bool selected)override{
   if(!juce::isPositiveAndBelow(row,filtered.size()))return;auto& p=filtered.getReference(row);
@@ -66,37 +71,89 @@ class PluginBrowser final : public juce::Component, private juce::ListBoxModel, 
   int row=list.getSelectedRow();if(scanning||!e.canEditInserts()||!juce::isPositiveAndBelow(row,filtered.size()))return;
   auto description=filtered[row];if(onLoad)onLoad(description);
  }
- bool nextFormat(){
-  auto formats=e.pluginFormats.getFormats();if(formatIndex>=formats.size())return false;
-  auto* f=formats[formatIndex++];
-  scanner=std::make_unique<juce::PluginDirectoryScanner>(known,*f,f->getDefaultLocationsToSearch(),true,pedal(),false);return true;
+ bool launch(const juce::String& action,const Candidate& item){
+  using namespace juce;
+  requestDir=File::getSpecialLocation(File::tempDirectory).getNonexistentChildFile("pulse-plugin-scan","");
+  if(!requestDir.createDirectory().wasOk())return false;
+  auto request=requestDir.getChildFile("request.xml");XmlElement xml("PluginScan");
+  xml.setAttribute("action",action);xml.setAttribute("format",item.format);xml.setAttribute("path",item.path);
+  if(!xml.writeTo(request))return false;
+  child=std::make_unique<ChildProcess>();
+  if(!child->start(StringArray{File::getSpecialLocation(File::currentExecutableFile).getFullPathName(),"--scan-plugin-helper",request.getFullPathName()},0)){child.reset();return false;}
+  startedAt=Time::getMillisecondCounterHiRes();return true;
  }
- void finish(){
-  stopTimer();if(scanner){failures.addArray(scanner->getFailedFiles());scanner.reset();}
-  scanning=false;known.scanFinished();persist();updateList(true);
-  status.setText(juce::String(known.getNumTypes())+" discovered | "+juce::String(known.getBlacklistedFiles().size())+" skipped | "+juce::String(failures.size())+" scan failures. Showing "+(instruments?"instruments.":"effects."),juce::dontSendNotification);
+ void cleanupChild(){if(child&&child->isRunning())child->kill();child.reset();if(requestDir!=juce::File{})requestDir.deleteRecursively();requestDir=juce::File{};}
+ void markFailed(const juce::String& reason){
+  if(currentPath.isNotEmpty()){known.addToBlacklist(currentPath);failures.add(currentPath+" | "+reason);persist();pedal().deleteFile();}
+  else failures.add("Discovery | "+reason);
+ }
+ void finish(bool cancelled=false){
+  stopTimer();cleanupChild();if(scanOwner==this){pedal().deleteFile();scanOwner=nullptr;}currentPath.clear();scanning=false;discovering=false;known.scanFinished();persist();updateList(true);
+  if(!failures.isEmpty())directory().getChildFile("plugin-scan-failures.txt").appendText(failures.joinIntoString("\n")+"\n");
+  status.setText((cancelled?juce::String("Stopped. "):juce::String("Finished. "))+juce::String(known.getNumTypes())+" discovered | "+juce::String(known.getBlacklistedFiles().size())+" skipped | "+juce::String(failures.size())+" failures. See plugin-scan-failures.txt.",juce::dontSendNotification);
+ }
+ void beginNext(){
+  while(nextCandidate<queue.size()){
+   auto item=queue[nextCandidate++];if(known.getBlacklistedFiles().contains(item.path))continue;
+   // Existing VST3 entries with the same filesystem timestamp need no rescan.
+   bool cached=false,changed=false;
+   if(item.format=="VST3"&&juce::File::isAbsolutePath(item.path)){
+    juce::File f(item.path);if(f.exists())for(auto& d:known.getTypes())if(d.fileOrIdentifier==item.path&&d.pluginFormatName==item.format){cached=true;if(d.lastFileModTime!=f.getLastModificationTime())changed=true;}
+   }
+   if(cached&&!changed)continue;
+   currentPath=item.path;status.setText("Scanning "+juce::String((int)nextCandidate)+"/"+juce::String((int)queue.size())+" | "+item.path,juce::dontSendNotification);
+   if(!pedal().replaceWithText(currentPath+"\n")){failures.add("Cannot write scan recovery marker.");finish();return;}
+   if(launch("scan",item))return;
+   failures.add("Could not launch scan helper: "+currentPath);finish();return;
+  }finish();
  }
  void timerCallback() override{
-  if(!scanning||!e.canEditInserts()){finish();return;}
-  if(!scanner){if(!allFormats||!nextFormat()){finish();return;}}
-  auto next=scanner->getNextPluginFileThatWillBeScanned();status.setText("Scanning "+next,juce::dontSendNotification);
-  juce::String current;bool more=scanner->scanNextFile(true,current);persist();updateList(true);
-  if(!more){failures.addArray(scanner->getFailedFiles());scanner.reset();if(!allFormats)finish();}
+  using namespace juce;
+  if(!scanning){stopTimer();return;}if(!e.canEditInserts()){finish(true);return;}
+  if(!child){beginNext();return;}
+  if(child->isRunning()){
+   if(Time::getMillisecondCounterHiRes()-startedAt>(discovering?discoveryTimeoutMs:scanTimeoutMs)){
+    cleanupChild();markFailed("Timed out");if(discovering){finish();return;}currentPath.clear();updateList(true);
+   }return;
+  }
+  auto code=child->getExitCode();auto resultFile=requestDir.getChildFile("result.xml");
+  auto xml=(code==0&&resultFile.existsAsFile()&&resultFile.getSize()<=32*1024*1024)?XmlDocument::parse(resultFile):nullptr;
+  bool ok=xml&&xml->hasTagName("PluginScanResult");
+  if(discovering){
+   if(ok){for(auto* x:xml->getChildWithTagNameIterator("Candidate")){Candidate item{x->getStringAttribute("format"),x->getStringAttribute("path")};if(item.path.isNotEmpty()&&queue.size()<20000)queue.push_back(item);}}
+   cleanupChild();discovering=false;if(!ok){markFailed("Discovery helper failed");finish();return;}
+   status.setText("Found "+String((int)queue.size())+" candidates. Scanning individually...",dontSendNotification);return;
+  }
+  Array<PluginDescription> found;
+  if(ok){for(auto* x:xml->getChildWithTagNameIterator("PLUGIN")){PluginDescription d;if(d.loadFromXml(*x))found.add(d);}}
+  cleanupChild();
+  if(!ok||found.isEmpty())markFailed("Plugin failed, crashed, or returned no supported types");
+  else{
+   for(auto& d:known.getTypes())if(d.fileOrIdentifier==currentPath)known.removeType(d);
+   for(auto& d:found)known.addType(d);
+   persist();pedal().deleteFile();
+  }
+  currentPath.clear();updateList(true);
  }
- void startDefaultScan(){if(scanning||!e.canEditInserts())return;directory().createDirectory();formatIndex=0;failures.clear();allFormats=true;scanning=true;updateButtons();startTimer(20);}
+ bool beginScan(){
+  if(scanning||scanOwner!=nullptr||!e.canEditInserts())return false;
+  if(!directory().createDirectory().wasOk())return false;
+  scanOwner=this;scanning=true;discovering=false;nextCandidate=0;queue.clear();failures.clear();currentPath.clear();updateButtons();startTimer(100);return true;
+ }
+ void startDefaultScan(){
+  if(!beginScan())return;discovering=true;status.setText("Finding installed plugins in isolated helper...",juce::dontSendNotification);
+  if(!launch("discover",{})){markFailed("Could not start discovery helper");finish();}
+ }
  void chooseFile(){
-  if(scanning||!e.canEditInserts())return;
+  if(scanning||scanOwner!=nullptr||!e.canEditInserts())return;
   chooser=std::make_unique<juce::FileChooser>("Scan VST3 or Audio Unit bundle",juce::File{},"*.vst3;*.component");
   juce::Component::SafePointer<PluginBrowser> safe(this);
   chooser->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::canSelectDirectories,[safe](const juce::FileChooser& f){
-   if(!safe||f.getResult()==juce::File{}||!safe->e.canEditInserts())return;auto path=f.getResult().getFullPathName();
-   for(auto* format:safe->e.pluginFormats.getFormats())if(format->fileMightContainThisPluginType(path)){
-    directory().createDirectory();safe->scanner=std::make_unique<juce::PluginDirectoryScanner>(safe->known,*format,juce::FileSearchPath{},false,pedal(),false);
-    safe->scanner->setFilesOrIdentifiersToScan(juce::StringArray{path});safe->allFormats=false;safe->scanning=true;safe->failures.clear();safe->updateButtons();safe->startTimer(20);return;
-   }
-   safe->status.setText("No compatible format for the selected file.",juce::dontSendNotification);
+   if(!safe||f.getResult()==juce::File{}||!safe->beginScan())return;
+   auto path=f.getResult().getFullPathName();safe->known.removeFromBlacklist(path);safe->queue.push_back({"",path});
   });
  }
+
 public:
  PluginBrowser(Engine& engine,std::function<void(const juce::PluginDescription&)> callback,bool showInstruments=false):e(engine),instruments(showInstruments),onLoad(std::move(callback)){
   for(auto* c:std::array<juce::Component*,13>{&heading,&status,&search,&manufacturer,&category,&list,&scan,&file,&cancel,&load,&favorite,&onlyFavorites,&clearBlacklist})addAndMakeVisible(c);
@@ -104,13 +161,13 @@ public:
   search.setTextToShowWhenEmpty("Search plugin, manufacturer, category...",PulseTheme::muted);search.onTextChange=[this]{updateList();};
   manufacturer.onChange=[this]{updateList();};category.onChange=[this]{updateList();};
   list.setRowHeight(28);list.setMultipleSelectionEnabled(false);list.setColour(juce::ListBox::backgroundColourId,PulseTheme::panel);
-  scan.onClick=[this]{startDefaultScan();};file.onClick=[this]{chooseFile();};cancel.onClick=[this]{finish();};load.onClick=[this]{loadSelected();};
+  scan.onClick=[this]{startDefaultScan();};file.onClick=[this]{chooseFile();};cancel.onClick=[this]{finish(true);};load.onClick=[this]{loadSelected();};
   favorite.onClick=[this]{int row=list.getSelectedRow();if(!juce::isPositiveAndBelow(row,filtered.size()))return;auto id=filtered[row].createIdentifierString();if(favorites.contains(id))favorites.removeString(id);else favorites.add(id);persist();updateList();};
   onlyFavorites.setClickingTogglesState(true);onlyFavorites.onClick=[this]{updateList();};
-  clearBlacklist.onClick=[this]{if(scanning||!e.canEditInserts())return;known.clearBlacklistedFiles();pedal().deleteFile();persist();status.setText("Skipped plugins cleared. Scan again only if safe.",juce::dontSendNotification);};
+  clearBlacklist.onClick=[this]{if(scanning||scanOwner!=nullptr||!e.canEditInserts())return;known.clearBlacklistedFiles();pedal().deleteFile();persist();status.setText("Skipped plugins cleared. Scan again only if safe.",juce::dontSendNotification);};
   restore();updateList(true);status.setText(juce::String(known.getNumTypes())+" cached plugins. Scan installed effects or a specific bundle.",juce::dontSendNotification);setSize(740,520);
  }
- void shutdown(){stopTimer();scanner.reset();scanning=false;persist();}
+ void shutdown(){if(scanning)finish(true);else stopTimer();}
  ~PluginBrowser()override{list.setModel(nullptr);shutdown();}
  void resized()override{
   auto r=getLocalBounds().reduced(10);heading.setBounds(r.removeFromTop(29));auto row=r.removeFromTop(30);search.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));manufacturer.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2));category.setBounds(row.reduced(2));
